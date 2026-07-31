@@ -1,0 +1,217 @@
+------------------------------------------------------------------------
+----                                                                ----
+----  YM2149 compatible sound generator.                            ----
+----                                                                ----
+---- This file is part of the SUSKA ATARI clone project.            ----
+---- http://www.experiment-s.de                                     ----
+----                                                                ----
+---- Description:                                                   ----
+---- Model of the ST or STE's YM2149 sound generator.               ----
+---- This IP core of the sound generator differs slightly from      ----
+---- the original. Firstly it is a synchronous design without any   ----
+---- latches (like assumed in the original chip). This required     ----
+---- the introduction of a system adequate clock. In detail this    ----
+---- SYS_CLK should on the one hand be fast enough to meet the      ----
+---- timing requirements of the system's bus cycle and should one   ----
+---- the other hand drive the PWM modules correctly. To meet both   ----
+---- a SYS_CLK of 16MHz or above is recommended.                    ----
+---- Secondly, the original chip has an implemented DA converter.   ----
+---- This feature is not possible in today's FPGAs. Therefore the   ----
+---- converter is replaced by pulse width modulators. This solu-    ----
+---- tion is very simple in comparison to other approaches like     ----
+---- external DA converters with wave tables etc. The soltution     ----
+---- with the pulse width modulators is probably not as accurate    ----
+---- DAs with wavetables. For a detailed descrition of the hard-    ----
+---- ware PWM filter look at the end of the wave file, where the    ----
+---- pulse width modulators can be found.                           ----
+---- For a proper operation it is required, that the wave clock     ----
+---- is lower than the system clock. A good choice is for example   ----
+---- 2MHz for the wave clock and 16MHz for the system clock.        ----
+----                                                                ----
+---- Main module file.                                              ----
+---- Top level file for use in systems on programmable chips.       ----
+----                                                                ----
+----                                                                ----
+---- To Do:                                                         ----
+---- -                                                              ----
+----                                                                ----
+---- Author(s):                                                     ----
+---- - Wolfgang Foerster, wf@experiment-s.de; wf@inventronik.de     ----
+----                                                                ----
+------------------------------------------------------------------------
+----                                                                ----
+---- Copyright © 2006... Wolfgang Foerster - Inventronik GmbH.      ----
+----                                                                ----
+---- All rights reserved. No portion of this sourcecode may be      ----
+---- reproduced or transmitted in any form by any means, whether    ----
+---- by electronic, mechanical, photocopying, recording or          ----
+---- otherwise, without my written permission.                      ----
+----                                                                ----
+------------------------------------------------------------------------
+--
+-- Revision History
+--
+-- Revision 2K6A  2006/06/03 WF
+--   Initial Release.
+-- Revision 2K6B  2006/11/07 WF
+--   Modified Source to compile with the Xilinx ISE.
+--   Top level file provided for SOC (systems on programmable chips).
+-- Revision 2K8A  2008/07/14 WF
+--   Minor changes.
+-- Revision 2K15B  20151224 WF
+--   Replaced the data type bit by std_logic.
+-- Revision 2K21A 20211224 UMA
+--   Udo Matthe fix reading the outputs when port direction is output.
+--
+
+library ieee;
+use ieee.std_logic_1164.all;
+use work.WF2149IP_DIGOUT_PKG.all;
+
+entity WF2149IP_DIGOUT_TOP_SOC is
+    port(
+
+        SYS_CLK     : in std_logic; -- Read the inforation in the header!
+        RESETn      : in std_logic;
+
+        WAV_CLK     : in std_logic; -- Read the inforation in the header!
+        SELn        : in std_logic;
+
+        BDIR        : in std_logic;
+        BC2, BC1    : in std_logic;
+
+        A9n, A8     : in std_logic;
+        DA_IN       : in std_logic_vector(7 downto 0);
+        DA_OUT      : out std_logic_vector(7 downto 0);
+        DA_EN       : out std_logic;
+
+        IO_A_IN     : in std_logic_vector(7 downto 0);
+        IO_A_OUT    : out std_logic_vector(7 downto 0);
+        IO_A_EN     : out std_logic;
+        IO_B_IN     : in std_logic_vector(7 downto 0);
+        IO_B_OUT    : out std_logic_vector(7 downto 0);
+        IO_B_EN     : out std_logic;
+
+        OUT_ALL     : out std_logic_vector(7 downto 0)
+    );
+end WF2149IP_DIGOUT_TOP_SOC;
+
+architecture STRUCTURE of WF2149IP_DIGOUT_TOP_SOC is
+signal BUSCYCLE     : BUSCYCLES;
+signal BDIR_BC      : std_logic_vector(2 downto 0);
+signal DATA_OUT_I   : std_logic_vector(7 downto 0);
+signal DATA_EN_I    : std_logic;
+signal WAV_STRB     : std_logic;
+signal ADR_I        : std_logic_vector(3 downto 0);
+signal CTRL_REG     : std_logic_vector(7 downto 0);
+signal PORT_A       : std_logic_vector(7 downto 0);
+signal PORT_B       : std_logic_vector(7 downto 0);
+begin
+    P_WAVSTRB: process(RESETn, SYS_CLK)
+    variable LOCK   : boolean;
+    variable TMP    : std_logic;
+    begin
+        if RESETn = '0' then
+            LOCK := false;
+            TMP := '0';
+        elsif SYS_CLK = '1' and SYS_CLK' event then
+            if WAV_CLK = '1' and LOCK = false then
+                LOCK := true;
+                TMP := not TMP; -- Divider by 2.
+                case SELn is
+                    when '1'    => WAV_STRB <= '1';
+                    when others => WAV_STRB <= TMP;
+                end case;
+            elsif WAV_CLK = '0' then
+                LOCK := false;
+                WAV_STRB <= '0';
+            else
+                WAV_STRB <= '0';
+            end if;
+        end if;
+    end process P_WAVSTRB;
+
+    BDIR_BC <= BDIR & BC2 & BC1;
+    with BDIR_BC select
+        BUSCYCLE <= INACTIVE    when "000" | "010" | "101",
+                    ADDRESS     when "001" | "100" | "111",
+                    R_READ      when "011",
+                    R_WRITE     when "110";
+
+    ADDRESSLATCH: process(RESETn, SYS_CLK)
+    -- This process is responsible to store the desired register
+    -- address. The default (after reset) is channel A fine tone
+    -- adjustment.
+    begin
+        if RESETn = '0' then
+            ADR_I <= (others => '0');
+        elsif SYS_CLK = '1' and SYS_CLK' event then
+            if BUSCYCLE = ADDRESS and A9n = '0' and A8 = '1' and DA_IN(7 downto 4) = x"0" then
+                ADR_I <= DA_IN(3 downto 0);
+            end if;
+        end if;
+    end process ADDRESSLATCH;
+
+    P_CTRL_REG: process(RESETn, SYS_CLK)
+    -- THIS is the Control register for the mixer and for the I/O ports.
+    begin
+        if RESETn = '0' then
+            CTRL_REG <= x"00";
+        elsif SYS_CLK = '1' and SYS_CLK' event then
+            if BUSCYCLE = R_WRITE and ADR_I = x"7" then
+                CTRL_REG <= DA_IN;
+            end if;
+        end if;
+    end process P_CTRL_REG;
+
+    DIG_PORTS: process(RESETn, SYS_CLK)
+    begin
+        if RESETn = '0' then
+            PORT_A <= x"00";
+            PORT_B <= x"00";
+        elsif SYS_CLK = '1' and SYS_CLK' event then
+            if BUSCYCLE = R_WRITE and ADR_I = x"E" then
+                PORT_A <= DA_IN;
+            elsif BUSCYCLE = R_WRITE and ADR_I = x"F" then
+                PORT_B <= DA_IN;
+            end if;
+        end if;
+    end process DIG_PORTS;
+    -- Set port direction to input or to output:
+    IO_A_EN <= '1' when CTRL_REG(6) = '1' else '0';
+    IO_B_EN <= '1' when CTRL_REG(7) = '1' else '0';
+    IO_A_OUT <= PORT_A;
+    IO_B_OUT <= PORT_B;
+
+    I_PSG_WAVE: WF2149IP_WAVE_DIGOUT
+        port map(
+            RESETn      => RESETn,
+            SYS_CLK => SYS_CLK,
+
+            WAV_STRB    => WAV_STRB,
+
+            ADR         => ADR_I,
+            DATA_IN     => DA_IN,
+            DATA_OUT    => DATA_OUT_I,
+            DATA_EN     => DATA_EN_I,
+
+            BUSCYCLE    => BUSCYCLE,
+            CTRL_REG    => CTRL_REG(5 downto 0),
+
+            OUT_ALL     => OUT_ALL
+        );
+
+    -- Read the ports and registers:
+    DA_EN <=    '1' when DATA_EN_I = '1' else
+                '1' when BUSCYCLE = R_READ and ADR_I = x"7" else
+                '1' when BUSCYCLE = R_READ and ADR_I = x"E" else
+                '1' when BUSCYCLE = R_READ and ADR_I = x"F" else '0';
+
+    DA_OUT <=   DATA_OUT_I when DATA_EN_I = '1' else -- WAV stuff.
+                PORT_A when BUSCYCLE = R_READ and ADR_I = x"E" and CTRL_REG(6) = '1' else
+                PORT_B when BUSCYCLE = R_READ and ADR_I = x"F" and CTRL_REG(7) = '1' else
+                IO_A_IN when BUSCYCLE = R_READ and ADR_I = x"E" else
+                IO_B_IN when BUSCYCLE = R_READ and ADR_I = x"F" else
+                CTRL_REG when BUSCYCLE = R_READ and ADR_I = x"7" else (others => '0');
+
+end STRUCTURE;
