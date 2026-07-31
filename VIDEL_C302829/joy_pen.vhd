@@ -37,6 +37,9 @@
 -- Revision History
 -- Revision 2K14B 20141224 WF
 --   Initial Release.
+-- Revision 2K25A 20150620 WF
+--   XPEN_CNT is now incremented by the edge of DE.
+--    this is required because DE period may be slower than CLK.
 -- 
 
 library work;
@@ -79,13 +82,17 @@ begin
 	YPEN_REG_CS <= '1' when VCS = '1' and ADR_I = x"222" and RWn = '1' else '0'; -- Read only, 16 bit.
 
 	X_PEN_CNT: process
-	 -- The counter works with 8MHz or with 16MHz.
+    variable LOCK   : boolean;
 	begin
 		wait until CLK = '1' and CLK' event;
 		if RESET = '1' then
 			XPEN_CNT <= (others => '0');
-        elsif DE = '1' then
+            LOCK := false;
+        elsif DE = '1' and LOCK = false then
             XPEN_CNT <= XPEN_CNT + '1'; -- 8MHz or 16MHz.
+            LOCK := true;
+        elsif DE = '0' then
+            LOCK := false;
         else
             XPEN_CNT <= (others => '0'); -- Erase counter during horizontal sync.
         end if;			

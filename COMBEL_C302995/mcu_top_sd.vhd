@@ -57,7 +57,6 @@ entity MCU_TOP is
         SYS_RESET_OUTn          : out std_logic;
         RESET                   : in std_logic;
 
-        ASn                     : in std_logic; -- Bus control signals.
         LDSn                    : in std_logic; -- Bus control signals.
         UDSn                    : in std_logic; -- Bus control signals.
         RWn                     : in std_logic; -- Bus control signals.
@@ -112,7 +111,6 @@ entity MCU_TOP is
         CAS0n                   : out std_logic; -- This is for 256Mb chips.
         RAS1n                   : out std_logic; -- This is for 256Mb chips.
         CAS1n                   : out std_logic; -- This is for 256Mb chips.
-        RAM_16MB                : in std_logic; -- RAM size.
         BUS_WIDTH               : in RAMWIDTH_TYPE; -- RAM bus width.
         SIZE                    : in std_logic_vector(1 downto 0); -- Data size control.
         DQMn                    : out std_logic_vector(3 downto 0); -- SD-RAM output buffer controls.
@@ -147,19 +145,7 @@ signal MCU_PHASE            : MCU_PHASE_TYPE;
 
 signal REF_EN_I             : std_logic;
 
-signal SOUND_CTRL_CS_I              : std_logic;
-signal SOUND_FRAME_START_HI_CS_I    : std_logic;
-signal SOUND_FRAME_START_MID_CS_I   : std_logic;
-signal SOUND_FRAME_START_LOW_CS_I   : std_logic;
-signal SOUND_FRAME_ADR_HI_CS_I      : std_logic;
-signal SOUND_FRAME_ADR_MID_CS_I     : std_logic;
-signal SOUND_FRAME_ADR_LOW_CS_I     : std_logic;
-signal SOUND_FRAME_END_HI_CS_I      : std_logic;
-signal SOUND_FRAME_END_MID_CS_I     : std_logic;
-signal SOUND_FRAME_END_LOW_CS_I     : std_logic;
-
 signal INIT_STATE                   : integer range 0 to 1023;
-
 begin
     P_SDINIT: process(SYS_RESET_INn, CLK)
     -- This process provides the control for the initialisation of the SD-RAM.
@@ -367,7 +353,6 @@ begin
             RAMn                    => RAMn,
 
             MEM_CONFIG_RS           => MEM_CONFIG_RS,
-            RAM_16MB                => RAM_16MB,
 
             MCU_PHASE               => MCU_PHASE,
 

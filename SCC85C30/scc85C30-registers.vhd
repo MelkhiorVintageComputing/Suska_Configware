@@ -33,6 +33,8 @@
 --   Initial Release.
 -- Revision 2K24A 20240620 WF
 --   Minor code optimizations.
+-- Revision 2K25A 20250620 WF
+--   Several Bug fixes and code optimizations.
 --
 
 library ieee;
@@ -46,7 +48,6 @@ entity REGISTERS is
 
         DATA_IN             : in std_logic_vector(7 downto 0);
         DATA_OUT            : out std_logic_vector(7 downto 0);
-        DATA_EN             : out std_logic;
         CEn                 : in std_logic;
         RDn                 : in std_logic;
         WRn                 : in std_logic;
@@ -311,7 +312,7 @@ begin
             ADR_PNTR <= 0;
             LOCK := false;
         elsif (CEn = '1' or (RDn = '1' and WRn = '1')) and LOCK = false then
-            ADR_PNTR <= 0; -- Reset the pointer after the secont read or write access with DCn low..
+            ADR_PNTR <= 0; -- Reset the pointer after the second read or write access with DCn low..
         elsif CEn = '1' or (RDn = '1' and WRn = '1') then -- LOCK is true here.
             ADR_PNTR <= ADR_VAR; -- Store the new pointer after the access to the command register.
         elsif CEn = '0' and WRn = '0' and DCn = '0' and ADR_PNTR = 0 and LOCK = false then -- Command register A or B.
@@ -320,8 +321,13 @@ begin
             else
                 ADR_VAR := To_Integer(unsigned('0' & DATA_IN(2 downto 0))); -- Lower register portion.
             end if;
-            LOCK := true;
-        elsif CEn = '0' and DCn = '0' and ADR_PNTR /= 0 then -- Read or write access to a control register.
+            
+            if ADR_VAR /= 0 then
+                LOCK := true; -- We need a second access.
+            else
+                LOCK := false; -- Do not lock if the address is the command register itself.
+            end if;
+        elsif CEn = '0' and DCn = '0' and (RDn = '0' or WRn = '0') and ADR_PNTR /= 0 then -- Read or write access to a control register.
             LOCK := false;
         end if;
 
@@ -345,7 +351,7 @@ begin
         elsif CEn = '0' and WRn = '0' and DCn = '0' and ADR_PNTR = 0 and ABn = '0' then -- Command register B.
             case DATA_IN(5 downto 3) is
                 when "011" => SEND_ABORT_B <= '1';
-                when "100" => EN_INT_RxCHAR_B <= '1';
+                        when "100" => EN_INT_RxCHAR_B <= '1';
                 when "010" => RES_EXT_STAT_INT_B <= '1';
                 when "101" => RES_TxINT_B <= '1';
                 when "110" => RES_ERR_B <= '1';
@@ -361,7 +367,7 @@ begin
             end case;
         elsif CEn = '0' and WRn = '0' and DCn = '0' and ABn = '1' then
             case ADR_PNTR is
-                when 2 => -- WRA(2) is the common register number 2.
+                when 2 => -- WRA(2) is the common register number 2. Interrupt vector.
                     WRA(ADR_PNTR) <= DATA_IN;
                 when 7 =>
                     if WRA(15)(0) = '1' then
@@ -369,7 +375,7 @@ begin
                     else
                         WRA(ADR_PNTR) <= DATA_IN;
                     end if;
-                when 9 => -- WRB(2) is the common register number 9.
+                when 9 => -- WRB(2) is the common register number 9. Interrupt control.
                     WRB(2) <= DATA_IN;
                     RESET_DELAY := "000";
                 when 10 | 11 | 12 | 13 | 14 | 15 =>
@@ -446,11 +452,12 @@ begin
     BUFFER_A_OUT <= DATA_IN;
     BUFFER_B_OUT <= DATA_IN;
 
-    DATA_EN <= '1' when CEn = '0' and RDn = '0' else '0'; 
     DATA_OUT <= BUFFER_A_IN when DCn = '1' and ABn = '1' else
                 BUFFER_B_IN when DCn = '1' and ABn = '0' else
                 BUFFER_A_IN when ABn = '1' and ADR_PNTR = 8 else
                 BUFFER_B_IN when ABn = '0' and ADR_PNTR = 8 else
+                WRA(10) when ABn = '1' and ADR_PNTR = 11 and EXTEND_READ_EN_A = '1' else
+                WRB(10) when ABn = '0' and ADR_PNTR = 11 and EXTEND_READ_EN_B = '1' else
                 RRA15 when ABn = '1' and (ADR_PNTR = 11 or ADR_PNTR = 15) else
                 RRB15 when ABn = '0' and (ADR_PNTR = 11 or ADR_PNTR = 15) else
                 RRA13 when ABn = '1' and ADR_PNTR = 13 else
@@ -459,6 +466,8 @@ begin
                 RRB12 when ABn = '0' and ADR_PNTR = 12 else
                 RRA10 when ABn = '1' and (ADR_PNTR = 10 or ADR_PNTR = 14) else
                 RRB10 when ABn = '0' and (ADR_PNTR = 10 or ADR_PNTR = 14) else
+                WRA(3) when ABn = '1' and ADR_PNTR = 9 and EXTEND_READ_EN_A = '1' else
+                WRB(3) when ABn = '0' and ADR_PNTR = 9 and EXTEND_READ_EN_B = '1' else
                 RRA7 when ABn = '1' and ADR_PNTR = 7 and WRA(4)(5 downto 2) = "1000" and WRA(15)(2) = '1' else -- Frame FIFO enabled.
                 RRB7 when ABn = '0' and ADR_PNTR = 7 and WRB(4)(5 downto 2) = "1000" and WRB(15)(2) = '1' else -- Frame FIFO enabled.
                 RRA6 when ABn = '1' and ADR_PNTR = 6 and WRA(4)(5 downto 2) = "1000" and WRA(15)(2) = '1' else -- Frame FIFO enabled.
@@ -467,24 +476,19 @@ begin
                 RRB3 when ABn = '0' and (ADR_PNTR = 3 or ADR_PNTR = 7) else
                 RRA2 when ABn = '1' and (ADR_PNTR = 2 or ADR_PNTR = 6) else
                 RRB2 when ABn = '0' and (ADR_PNTR = 2 or ADR_PNTR = 6) else
-                RRA1 when ABn = '1' and (ADR_PNTR = 1 or ADR_PNTR = 5) else
-                RRB1 when ABn = '0' and (ADR_PNTR = 1 or ADR_PNTR = 5) else
-                RRA0 when ABn = '1' and (ADR_PNTR = 0 or ADR_PNTR = 4) else
-                RRB0 when ABn = '0' and (ADR_PNTR = 0 or ADR_PNTR = 4) else
-                WRA(10) when ABn = '1' and ADR_PNTR = 11 and EXTEND_READ_EN_A = '1' else
-                WRB(10) when ABn = '0' and ADR_PNTR = 11 and EXTEND_READ_EN_B = '1' else
                 WRA(5) when ABn = '1' and ADR_PNTR = 5 and EXTEND_READ_EN_A = '1' else
                 WRB(5) when ABn = '0' and ADR_PNTR = 5 and EXTEND_READ_EN_B = '1' else
+                RRA1 when ABn = '1' and (ADR_PNTR = 1 or ADR_PNTR = 5) else
+                RRB1 when ABn = '0' and (ADR_PNTR = 1 or ADR_PNTR = 5) else
                 WRA(4) when ABn = '1' and ADR_PNTR = 4 and EXTEND_READ_EN_A = '1' else
                 WRB(4) when ABn = '0' and ADR_PNTR = 4 and EXTEND_READ_EN_B = '1' else
-                WRA(3) when ABn = '1' and ADR_PNTR = 9 and EXTEND_READ_EN_A = '1' else
-                WRB(3) when ABn = '0' and ADR_PNTR = 9 and EXTEND_READ_EN_B = '1' else
-                x"00"; -- Others are read back zero.
+                RRA0 when ABn = '1' and (ADR_PNTR = 0 or ADR_PNTR = 4) else
+                RRB0 when ABn = '0' and (ADR_PNTR = 0 or ADR_PNTR = 4) else x"00"; -- Others are read back zero.
 
-    RRA1_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '1' and (ADR_PNTR = 1 or ADR_PNTR = 5)else '0';
-    RRB1_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '0' and (ADR_PNTR = 1 or ADR_PNTR = 5)else '0';
-    RRA0_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '1' and (ADR_PNTR = 0 or ADR_PNTR = 4)else '0';
-    RRB0_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '0' and (ADR_PNTR = 0 or ADR_PNTR = 4)else '0';
+    RRA0_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '1' and (ADR_PNTR = 0 or ADR_PNTR = 4) else '0';
+    RRB0_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '0' and (ADR_PNTR = 0 or ADR_PNTR = 4) else '0';
+    RRA1_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '1' and (ADR_PNTR = 1 or ADR_PNTR = 5) else '0';
+    RRB1_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '0' and (ADR_PNTR = 1 or ADR_PNTR = 5) else '0';
     RRA6_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '1' and ADR_PNTR = 6 and WRA(4)(5 downto 2) = "1000" and WRA(15)(2) = '1' else '0';
     RRA7_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '1' and ADR_PNTR = 7 and WRA(4)(5 downto 2) = "1000" and WRA(15)(2) = '1' else '0';
     RRB6_RD <= '1' when CEn = '0' and RDn = '0' and DCn = '0' and ABn = '0' and ADR_PNTR = 6 and WRB(4)(5 downto 2) = "1000" and WRB(15)(2) = '1' else '0'; -- Frame FIFO enabled.
@@ -516,6 +520,7 @@ begin
     RRA2 <= WRA(2); -- Interrupt vector.
     RRA1 <= BUFFER_A_IN; -- Status.
     RRA0 <= BUFFER_A_IN; -- RxTx status.
+
     RRB15 <= WRB(15);
     RRB13 <= WRB(12); -- Timer constant high byte.
     RRB12 <= WRB(11); -- Timer constant low byte.
@@ -523,9 +528,9 @@ begin
     RRB7 <= BUFFER_B_IN; -- Status and byte counter high.
     RRB6 <= BUFFER_B_IN; -- Byte counter low.
     RRB3 <= x"00";
-    RRB2 <= WRA(2)(7 downto 4) & MIVE & WRA(2)(0) when WRB(2)(4) = '0' else WRA(2)(7) & MIVE & WRA(2)(3 downto 0); -- Modified interrupt vector.
+    RRB2 <= RRA2(7 downto 4) & MIVE & RRA2(0) when WRB(2)(4) = '0' else RRA2(7) & MIVE & RRA2(3 downto 0); -- Modified interrupt vector.
     RRB1 <= BUFFER_B_IN; -- Status.
-    RRB0 <= BUFFER_A_IN; -- RxTx status.
+    RRB0 <= BUFFER_B_IN; -- RxTx status.
 
     -- Write register 15A:
     BREAK_ABORT_IE_A <= WRA(14)(7);
@@ -697,7 +702,7 @@ begin
     Rx_EN_B <= WRB(3)(0);
 
     -- Write register 2A:
-    INT_VECT <= WRA(2) when VIS = '0' else RRB2;
+    INT_VECT <= RRA2 when ABn = '1' and VIS = '0' else RRB2;
 
     -- Write register 1A:
     DMA_REQ_MODE_A <= WRA(1)(7 downto 5);

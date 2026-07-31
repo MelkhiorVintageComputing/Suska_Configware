@@ -1,4 +1,4 @@
-# Copyright © 2020... Wolfgang Foerster - Inventronik GmbH.
+# Copyright © 2019... Wolfgang Foerster - Inventronik GmbH.
 # All rights reserved. No portion of this sourcecode may be  
 # reproduced or transmitted in any form by any means, whether
 # by electronic, mechanical, photocopying, recording or      
@@ -18,14 +18,15 @@
 
 # create_clock -name CLK -period 100.000 -waveform {0.000 50.000} [get_ports {CLK}]
 
-#create_clock -period 166.600 -name CLK_6MHz [get_ports {CLK_6MHz}]
-create_clock -period 125.000 -name CLK_CPU [get_ports {CLK_CPU}]
-create_clock -period 62.500 -name CLK_16MHz [get_ports {CLK_16MHz}]
+create_clock -period 62.500 -name CLK_16M0 [get_ports {CLK_16M0}]
+create_clock -period 31.250 -name CLK_32M0 [get_ports {CLK_32M0}]
+create_clock -period 20.083 -name CLK_48M0 [get_ports {CLK_48M0}]
+create_clock -period 500.000 -name CLK_2M0 [get_ports {CLK_2M0}]
 
-derive_pll_clocks
+set_clock_groups -exclusive -group {CLK_16M0}
+set_clock_groups -exclusive -group {CLK_32M0}
+set_clock_groups -exclusive -group {CLK_48M0}
+set_clock_groups -exclusive -group {CLK_2M0}
+
 #derive_pll_clocks -use_net_name
-derive_clock_uncertainty
-
-set_clock_groups -exclusive -group {CLK_CPU}
-set_clock_groups -exclusive -group {CLK_16MHz}
-#set_clock_groups -exclusive -group {CODEC_SCLK}
+#derive_clock_uncertainty

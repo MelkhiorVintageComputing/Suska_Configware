@@ -10,7 +10,7 @@
 ---- machine including CPU, Blitter, Shadow, MCU, DMA, FDC,         ----
 ---- Shifter, GLUE, MFP, SOUND, ACIA and RTC.                       ----
 ----                                                                ----
----- Important notice concerning the clock system:                  ----
+---- Important Notice concerning the clock system:                  ----
 ---- The systems of the original ST or STE machines used several    ----
 ---- clocks which must stand in a fixed relation to each other.     ----
 ---- This core uses one central system clock of 16MHz. From this    ----
@@ -49,15 +49,7 @@
 ---- components and therefore declared in this top level file.      ----
 ---- This kind of modelling has the advantage, that the migration   ----
 ---- to other hardware is simple by modifying only the top level    ----
-
 ---- file of the SUSKA core.                                        ----
-----                                                                ----
----- CPU: this core features a light weight 68K30L CPU. Due to      ----
-----   resource limitations the generic swicht for the CPU is set   ----
-----   to true resulting in removing the bit field operations. So   ----
-----   BFCHG, BFCLR, BFEXTS, BFEXTU, BFFFO, BFINS, BFSET and BFTST  ----
-----   will not work. For more information refer to the top level   ----
-----   file of the 68K30L.                                          ----
 ----                                                                ----
 ---- SD-RAM section: This core provides a memory of 16MByte ST RAM  ----
 ----   and aditionally 64MB ALTRAM. The ALTRAM is switched by the   ----
@@ -153,7 +145,7 @@
 ----   "00" : We use a monochrome monitor or VGA monochrome mode.   ----
 ----   Remark: if SM124 is connected this selector has no effect.   ----
 ----                                                                ----
-----   CONFIG(3): reserved for future use.                          ----
+----   CONFIG(3): On = 68K10 CPU, Off = 68K00 CPU.                  ----
 ----   CONFIG(4): On = 14MB RAM, Off = 4MB RAM.                     ----
 ----   CONFIG(5): On = ALTRAM for ALTRAM capable operating systems. ----
 ----              ALTRAM is disabled for Config(4) = off.           ----
@@ -161,7 +153,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright © 2021... Wolfgang Foerster - Inventronik GmbH.      ----
+---- Copyright © 2006... Wolfgang Foerster - Inventronik GmbH.      ----
 ----                                                                ----
 ---- This source file may be used and distributed without           ----
 ---- restriction provided that this copyright statement is not      ----
@@ -188,16 +180,216 @@
 --
 -- Revision History
 --
+-- Revision 2K6B  2006/12/24 WF
+--   Initial Release.
+-- Revision 2K7B  2007/12/24 WF
+--   Replaced the external SHADOW video ram by an internal component.
+--   Connected the UARTs (CTSn and DCDn) to pins.
+-- Revision 2K8A  2008/07/14 WF
+--   Replaced the original MCU (25912) by a MCU capable driving the
+--   SD-RAMs used in the Suska-III hardware.
+--   Changes to run on the Suska hardware platform.
+-- Revision 2K8B  2008/12/24 WF
+--   Introduced EN_RAM_14MB.
+-- Revision 2K9A  2009/06/20 WF
+--   Enhancements in the video system to drive modern TFTs or multisyncs.
+--   The RESETn pin is not asserted by the RESET_BOOTn any more but by
+--     the FLASH_RESETn. This change was necessary because the FLASH's
+--     reset is on the series boards connected to the system reset.
+--   New: PLL_ARESET logic for resetting the phase locked loops during
+--     system startup.
+--   New: Clock synchronization in the MCU control file (process TIME_SLICES).
+--   New: Clock synchronization in the WF25914IP_CR_SHIFT_REG.
+--   Changed LATCHn behaviour in the MCU control file.
+--   New: process SLOW_CPU for lowering the CPU speed (compatibility reasons).
+--   Fixed interrupt polarity for TA_I and TB_I in the MFP core.
+--   Minor improvements in the MFP timer section.
+--   Several fixes concerning colour corrections in the Shifter's chroma shift registers.
+--   Fixed CPU exception processing to improve system startup.
+--   A couple of minor bug fixes.
+-- Revision 2K9B  2009/12/24 WF
+--   RESET_INn is now SYS_RESET_INn in the MCU top level file.
+--   RESET_OUTn is now SYS_RESET_OUTn in the MCU top level file.
+--   Replaced RESETn filter by new RESET_INn in the MCU top level file.
+--   Renamed the comp sync signal SH_COLOR to SH_CSYNCn.
+--   Removed DMAn in the module WF_IDE.
+--   Changed the MDAT_BUFFER clock from 64MHz to 32MHz due to better stability.
+--   Fixed 68000 bus interface: UDSn and LDSn logic not working correct with waitstates in some cases.
+--   Changed UNLK A7 logic due to compatibility reasons with MC68000 in the module wf68k00ip_control.
+--   Fixed a timing bug in the 68K00 bus arbitration state register.
+--   Small improvement the process TIME_SLICES in module wf25912ip_ctrl.
+--   Linewidth correction in wf25912ip_video_counter_sd.
+--   Bugfix in the BANK_SWITCH concerning 14MB of memory in the MCU control file.
+--   Numerous changes in wf25913ip_ctrl due to new wf25915ip_bus_arbiter_v2. These changes result
+--    wf25915ip_bus_arbiter_v2.
+--   Changed timing of SECT_CNT_ZEROn in module wf25913_registers.
+--   Fixed a bug in the sector counter in module wf25913_registers.
+--   Fixed bus access timing in module wf25913_registers.
+--   Introduced CTRL_SRC_SEL in the wf25913 registers and top level.
+--   Replaced port DMA_SRC_SEL by DRIVE_SEL in the wf25913 top level to meet better ACSI bus timing.
+--   New modeling of FIFO_HI in the DMA FIFO control section to meet the requirements for the new DMA controller.
+--   Adjusted FIFO_LOW in the DMA FIFO control section due to new FIFO_HI.
+--   Fixed DMA_EN logic and replaced DMA_RDn, DMA_WRn by DMA_EN in the DMA register section.
+--   Removed the unneccesary DMA_LOCKn in the module wf25915ip_adrdec.
+--   Changes in the related package and top level files to meet the new wf25915ip_bus_arbiter_V1.
+--   IACKn is now also locked by ASn in the module wf25915ip_interrupts.
+--   Fixed a FCSn bug in the GLUE's address decoding.
+--   Fixed a DMA_MODE_CSn bug in the GLUE's address decoding.
+--   Fixed a bug in the GLUE bus arbiter's BRn_LOGIC process not to start the DMA operation unintendedly.
+--   Removed DMA_LOCKn in the module wf25915ip_interrupts.
+--   Partially rewritten the wf25915ip_bus_arbiter_V1, removed DMA_SYNC again (not necessary any longer).
+--    these changes results in version wf25915ip_bus_arbiter_v2.
+--   Fixed the interrupt logic in the module wf6850ip_ctrl_status.
+--   Introduced a minor RTSn correction in the module wf6850ip_ctrl_status.
+--   Fixed the timing for DR_LOAD in the 1772 control section.
+-- Revision 2K10A  20010/06/20 WF
+--   Changed logic in the 25912 control section to enable the 14MB RAM. Introduced EN_RAM_14MB therefore .
+--   Changed DTACKn logic to enable 14MB correctly in the 25912 control section.
+--   Reduced MCU_ADR from 25 to 23 bits in this file.
+--   Several minor changes in the 68K00 to meet better design tool compatibility.
+--   Several changes to meet better compatibility with SCSI-II devices in the module WF_ACSI_SCSI_IF_SOC.
+--   Fixes in this top level concerning SCSI_WR, SCSI_RD and SCSI_DPn (SCSI_DP_OUT).
+--   Fixed VMAn for RTC access in the GLUE address register section.
+--   Several fixes in all WF5C15_139xIP_.. files to get the RTC working properly.
+--   Modified the IDE bus access to achieve TOS/PC compatibility with bootable CF cards under TOS.
+-- Revision 2K10B  2010/12/27 WF
+--   Introduced screen resolution switch SEL_640x400 in the shadow unit.
+--   Shadow control section: several optimizations to meet the operation of the LCD with 640x400 resolution.
+--   Shadow FIFO unit: changed the data output from pipelined to unpipelined.
+--   Changed entity name WF_SD_CARD to WF_ACSI_SDC.
+--   A bunch of changes in the Shifter's microwire interface.
+--   Changes concerning the monochrome monitor detection in the 25912 top level file.
+--   A bunch of changes in the MMU DMA sound control logic.
+--   Completely rewritten the DMA sound control logic in the SHIFTER module.
+--   There is now a FIFO with a depth of 4 and a width of 16 bits in the SHIFTER's DMA sound control.
+--   Minor changes in the MMU control logic concerning the DMA sound.
+--   Changes in this top level concerning DMA sound control respective the monochrome detection.
+--   25912 top level: minor modification concerning the changes of the DMA sound module.
+--   25912 address decoder: Removed the colour monitor processor access for the addressx "8901" because
+--   the DMA sound control register resides in the 25912 MCU DMA sound control logic.
+--   Several behavioural changes in the audio DAC module.
+--   Modified the audio DAC module by introduction of FCLK (this fixes distorted sound).
+-- Revision 2K11A 20110620 WF
+--   A minor change in the data readback logic of the 68901 timers (RWn is now taken into consideration).
+--   Cleaned up the condition code logic in the 68K00 shifter section.
+-- Revision 2K11B 20111226 WF
+--   Fixed some 68K00 items.
+--   RTC5C15-139x control: minor changes to improve data integrity.
+--   Fixed an error in the register section of the RTC5C15 module concerning the FORMAT_12_24n flag.
+--   Set STARTUP to 250ms in the flash loader module.
+--   101775ip_ctrl: Changed to synchronous reset in the LCD_TIMING section.
+--   Introduced a temporary fix in this top level concerning RESET_Sn.
+-- Revision 2K12A  20120620 WF
+--   GLUE: Introduced GL_STE_A4299_CS for the audio codec.
+--   WF_RTC5C15 registers: changed TIMER_EN to EOSCn with inverted functionality.
+--   New feature: Release of the CS4299 audio codec AC97 controller (WF_SND4299).
+--   Removed DTACKn for the RTC_CS in ST section (validated via VPAn) in the GLUE top level.
+--   Glue address register section: minor change concerning CMPCSn (UDSn locked now).
+--   MCU DMA control: readback of the DMA base and counter register is now 24 bit wide.
+--   MCU DMA sound module: a minor change concerning SINTn.
+--   Changed the SDATA_L and SDATA_R from linear to 2's complement.
+--   Changes in WF_AUDIO_DAC due to audiodata is now 2's complement.
+--   GPIP_IN(7) is now: SINT_IO7 or INT_4299.
+--   WF_ACSI_SCSI_IF_SOC: implementation of selection timeout.
+--   WF_ACSI_SCSI_IF_SOC: provided LINK97 compatibility (see SCSI_MODE).
+--   RTC5C15-139x control: minor changes to improve data integrity.
+--   Fixed some compatibility issues to the RP5C15 in WF5C15_139xIP_REGISTERS.
+--   WF6850IP_RECEIVE: Removed a latch driving PE.
+-- Revision 2K12B 20121224 WF
+--   WF_ACSI_SCSI_IF_SOC: Introduced the SLOW_MODE to achieve boot capability with TOS.
+--   25913 controller: removed some old stuff (package counter).
+-- Revision 2K13A 20130620 WF
+--   Minor changes in WF_ACSI_SCSI_IF_SOC to improve data integrity (DATA_BUFFER).
+--   Improvements in WF_ACSI_SCSI_IF_SOC concerning compatibility to devices using the message phases.
+--   WF_ACSI_SCSI_IF_SOC: changed DATA_EN logic for ACSI and SCSI.
+--   This top level: changed the logic for the ACSI_RDn and ACSI_WRn signals.
+--   Fixed the VMAn timing in the 68K00 bus controller. Thanks to Igor Majstorovic for the information.
+--   Top level: changes concerning the ACSI and SCSI bus logic. The both interfaces can now be used in parallel.
+--   Top level: removed the RESET_Sn temporary fix. It is not used any more due to a correction in the system
+--     microcontroller firmware.
+-- Revision 2K13B  20131224 WF
+--   68K00 ALU: Fixed the N flag for the CHK operation.
+--   68K00 ALU: DIV_RESULT_VAR is now 64 bit wide to handle the overflow correctly.
+--   Opcode decoder: Minor optimizations.
+--   68K00 interrupt controller: Changed the sequence for sampling the interrupt vector.
+--     It is now sampled before stacking.
+--   68901 USART: separate Transmit and receive buffer and  some
+--      minor changes. Thanks to Peter Neways (20121218).
+--   WF_ACSI_SCSI_IF_SOC: changed the selection timeout to work without TIMEOUT.
+--   WF_ACSI_SCSI_IF_SOC: some additional minor changes.
+--   GLUE address decoder: Disabled signal SCCn (emuTos crashes due to not present SCC).
+--   DMA register section: several changes due to implementation of the 5380.
+--   This top level: implementation of the 5380 SCSI controller.
+-- Revision 2K14A  20140228 WF
+--   68K00 address registers: fixed the INDEX logic concerning the use of SSP and USP.
+--   68K00 address registers: fixed the index logic concerning scaling.
+--   68K00 address registers: fixed the exchange of registers for SSP and USP.
+--   68K00 ALU: fixed the ABCD, NBCD and SBCD integer calculation.
+--   68K00 ALU: fixed the wrong remainder's sign for the DIVS operation.
+--   68K00 Interrupt controller: fixed wrong interrupt vector calculation in autovectoring mode.
+--   68K00 top level: Small changes for the IPLn filter.
+--   ACSI-SCSI bridge: rearranged the complete selection timeout to improve drive compatibility.
+-- Revision 2K15A 20150620 WF
+--   WF_ACSI_SCSI_IF: several code optimizations.
+--   WF_ACSI_SCSI_IF: fixed a bug in the ACSI_CTRL_ENn logic: enabled also in WAIT_1stBYTE.
+--   WF_ACSI_SCSI_IF: Implemented a message out system for rejection of all messages except 'COMMAND COMPLETE'.
+-- Revision 2K15B 20151224 WF
+--   Introduced a core version number (VERSION).
+--   Boot loader: VERSION can be read from  the microcontroller.
+--   Replaced data type bit by std_logic in all design units.
+--   1772 FCD core: optimized the DATA_OUT multiplexer.
+--   DMA_25913: CD_OUT is now registered.
+--   Some naming conventions (ROM2_In, ROM2n_I).
+--   Slow CPU is now auto switched if a 192kB ROM is selected.
+--   WF5380: fixed/modified the interrupt logic.
+--   This top level section: fixed HDINT_INn logic.
+--   DTACKn of the IDE interface is now in the correct address space.
+--   Automated the slow CPU feature for the old operating systems.
+--   CONFIG(1) ist not used any more!
+--   CONFIG(5) ist not used any more!
+-- Revision 2K16A 20160620 WF
+--   There is now a generic setting IDE_BYTESWAP_EN. The IDE byte swapping
+--     is set to false for compatibility reasons with the Falcon and STBook.
+--   DMA registers: CD_IN is now registered for timing stability.
+--   68K00-ALU: minor changes to meet Modelsim compatibility.
+--   68K00-CONTROL: minor changes to meet Modelsim compatibility.
+--   The reset of the CPU is now delayed. See P_CPU for more details.
+--   GLUE video timing: minor changes to meet better monitor compatibility.
+--   The core is alternatively powered by the pipelined 68K10 processor configured in the 68K00 compatibility mode (alpha).
+--   Bugfixes and optimizations in the WF_ACSI_SCSI_IF_SOC module. See the file header for more information.
+--   Fixed a bug in the 5380 implementation. This chip is now inactive when xFF827E(1 downto0) /= "11".
+--   Fixed a bug in the ACSI-SCSI implementation. This ACSI-SCSI interface is now inactive when xFF827E(1 downto0) /= "00".
+-- Revision 2K18A 20161224 WF
+--   CONFIG(1) ist now the selector between 68K00 and 68K10 CPU. Off is 68K00, on is 68K10.
+-- Revision 2K19A 20190419 WF
+-- Revision 2K19B  20191224 WF
+--   SD_TOP / SDRAM: Fixed a precharge bug during memory initialisation.
+--   Minor changes in the WF25914IP_CR_OUT module to help Multisyns or TFTs to synchronize correctly.
+-- Revision 2K20A  20200620 WF
+--   Toplevel: restructured DATA bus multiplexers.
+--   GLUE25915 changes, see the GLUE top level for more information.
+--   MCU25912 changes, see the GLUE top level for more information.
+--   DMA25913 changes, see the DMA top level for more information.
+--   Toplevel: Udo Matthe fix: changed polarity of COM_TxD.
+--   Toplevel: removed obsolete instance I_SD_CARD: WF_ACSI_SDC.
+--   Toplevel: implemented SD card microcontroller SPI interface.
+--   Implemented the CORETYPE-generic.
 -- Revision 2K21A 20211224 WF
---   Initial release.
+--   Rearanged CLK_CPU and CLK_3.
+--   Implementation of USB1160.
+--   Udo Matthe implementation of generic MFP_UART_FIXED_SPEED.
+--   Internal 32 bit wide address bus (for compatibility).
+--   Wired xFF827_D(2) to CLK_2. This is the dot clock for the video DAC.
+--   The configuration switch settings for the video mode are now similar to the Falcon settings.
+--   Changed the HSYNC and VSYNC polarity for VGA monitors.
+--   Additionally ALTRAM of 48MB is now accessable.
+--   Blitter can now handle 32 address bits.
 -- Revision 2K23B 20231224
 --   ROMSEL_FC_E0n is now switched via address space (UMA).
 --   New unitized video timing settings (UMA).
 -- Revision 2K24A 20240620
 --   Implemented dual use of the LCD port to meet the requirement for a new USB extension board.
 --   SCC enhancements.
--- Revision 2K25A 20250620
---   The SCC is per default disabled. TOS 2.xx does not boot with enabled SCC. See 'Workaround'
 --
 --   !!! See the header for actual configuration switch settings!!!
 
@@ -209,14 +401,15 @@ use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
-entity SUSKA_III_C_STE_68K30L_TOP is
-    generic(CORETYPE                : std_logic_vector(15 downto 0) := x"0020"; -- Core Type is 'Board C Suska-STE-68K30L'.
-            VERSION                 : std_logic_vector(31 downto 0) := x"20250620"; -- Core version.
+entity SUSKA_III_C_STE_68K10_TOP is
+    generic(CORETYPE                : std_logic_vector(15 downto 0) := x"0010"; -- Core Type is 'Board C Suska-STE-68K10'.
+            VERSION                 : std_logic_vector(31 downto 0) := x"20230620"; -- Core version.
             IDE_BYTESWAP_EN         : boolean := false; -- Select true or false. See file header for more information.
-            NO_BFOPS                : boolean := true; -- No bitfield operations if true. This saves 30% of the CPU resources.
-            MFP_UART_FIXED_SPEED    : boolean := true; -- Set true to use fixed Speed 38400bd
-            USB1160_LITTLE_ENDIAN   : boolean := false); 
-
+            MFP_UART_FIXED_SPEED    : boolean := false; -- Set true to use fixed Speed 38400bd
+            USB1160_LITTLE_ENDIAN   : boolean := false);
+            -- The following is tested with HDDRIVER (11.01):
+            -- If you want to boot from the IDE device then select false. No Windows compatibility.
+            -- If you want Windows compatibility select true. TOS does not boot from IDE.
     port(
         -- System controls:
         RESET_COREn         : in std_logic; -- FPGA reset.
@@ -497,9 +690,9 @@ entity SUSKA_III_C_STE_68K30L_TOP is
         SYS_BOOT_ACK        : in std_logic;
         SYS_BOOT_REQ        : out std_logic
     );
-end entity SUSKA_III_C_STE_68K30L_TOP;
+end entity SUSKA_III_C_STE_68K10_TOP;
 
-architecture STRUCTURE of SUSKA_III_C_STE_68K30L_TOP is
+architecture STRUCTURE of SUSKA_III_C_STE_68K10_TOP is
 -- Hardware specific components. Use these for a Cyclone II:
 component cyclone2_pll_1
     PORT
@@ -538,17 +731,19 @@ signal ADR_5380             : std_logic_vector(2 downto 0);
 signal ADR_I                : std_logic_vector(31 downto 1);
 signal ADR_EN_BLT           : std_logic;
 signal ADR_EN_BOOT          : std_logic;
-signal ADR_OUT_68K30L       : std_logic_vector(31 downto 0);
+signal ADR_OUT_68K10        : std_logic_vector(31 downto 1);
 signal ADR_OUT_BLT          : std_logic_vector(31 downto 1);
 signal ADR_OUT_BOOT         : std_logic_vector(20 downto 1);
-signal AS_OUT_68K30Ln       : std_logic;
+signal AS_OUT_68K10n        : std_logic;
 signal AS_OUT_BLTn          : std_logic;
 signal AS_OUT_GLUEn         : std_logic;
 signal AVEC_INn             : std_logic;
 signal AVEC_GLUEn           : std_logic;
+signal AVEC_SCUn            : std_logic;
 signal BERR_GLUEn           : std_logic;
+signal BERRn_SCU            : std_logic;
 signal BERR_In              : std_logic;
-signal BG_68K30Ln           : std_logic;
+signal BG_68K10n            : std_logic;
 signal BG_BLTn              : std_logic;
 signal BGACK_BLTn           : std_logic;
 signal BGACK_GLUEn          : std_logic;
@@ -561,7 +756,7 @@ signal BOOT_RESETn          : std_logic;
 signal BR_BLTn              : std_logic;
 signal BR_GLUEn             : std_logic;
 signal BR_In                : std_logic;
-signal BUS_EN_68K30L        : std_logic;
+signal BUS_EN_68K10         : std_logic;
 signal BUSCTRL_EN_BLT       : std_logic;
 signal BUSCTRL_EN_GLUE      : std_logic;
 signal CA2                  : std_logic;
@@ -592,10 +787,10 @@ signal CODEC_4299_DMA       : std_logic;
 signal CR_Wn                : std_logic;
 signal CSn_5380             : std_logic;
 signal SCLK_6M4             : std_logic;
+signal SIRQn_SCU            : std_logic;
 signal DATA_I               : std_logic_vector(15 downto 0);
-signal DATA_IN_68K30L       : std_logic_vector(15 downto 0);
-signal DATA_OUT_68K30L      : std_logic_vector(15 downto 0);
-signal DATA_EN_68K30L       : std_logic;
+signal DATA_OUT_68K10       : std_logic_vector(15 downto 0);
+signal DATA_EN_68K10        : std_logic;
 signal DATA_OUT_BLT         : std_logic_vector(15 downto 0);
 signal DATA_EN_BLT          : std_logic;
 signal DATA_OUT_GLUE        : std_logic_vector(15 downto 0);
@@ -606,10 +801,10 @@ signal DATA_OUT_DMA         : std_logic_vector(15 downto 0);
 signal DATA_EN_DMA          : std_logic;
 signal DATA_OUT_MFP         : std_logic_vector(7 downto 0);
 signal DATA_EN_MFP          : std_logic;
+signal DATA_OUT_SCU         : std_logic_vector(7 downto 0);
+signal DATA_EN_SCU          : std_logic;
 signal DATA_OUT_SOUND       : std_logic_vector(7 downto 0);
 signal DATA_EN_SOUND        : std_logic;
-signal DATA_OUT_USB1160     : std_logic_vector(15 downto 0);
-signal DATA_EN_USB1160      : std_logic;
 signal DATA_OUT_4299        : std_logic_vector(15 downto 0);
 signal DATA_EN_4299         : std_logic;
 signal DATA_OUT_ACIA_I      : std_logic_vector(7 downto 0);
@@ -619,12 +814,14 @@ signal DATA_EN_ACIA_II      : std_logic;
 signal DATA_OUT_RP5C15      : std_logic_vector(3 downto 0);
 signal DATA_EN_RP5C15       : std_logic;
 signal DATA_OUT_BOOT        : std_logic_vector(15 downto 0);
-signal DATA_EN_SCC          : std_logic;
-signal DATA_OUT_SCC         : std_logic_vector(7 downto 0);
 signal DATA_EN_BOOT         : std_logic;
 signal DATA_SHFT            : std_logic_vector(15 downto 0);
 signal DATA_EN_HI_SHFT      : std_logic;
 signal DATA_EN_LO_SHFT      : std_logic;
+signal DATA_EN_SCC          : std_logic;
+signal DATA_OUT_SCC         : std_logic_vector(7 downto 0);
+signal DATA_OUT_USB1160     : std_logic_vector(15 downto 0);
+signal DATA_EN_USB1160      : std_logic;
 signal DC_5380              : std_logic_vector(7 downto 0);
 signal DCYCn                : std_logic;
 signal DE_I                 : std_logic;
@@ -645,21 +842,20 @@ signal DM4_OUT              : std_logic;
 signal DP4_OUT              : std_logic;
 signal DPM4_EN              : std_logic;
 signal DRIVE_SEL_I          : std_logic_vector(1 downto 0);
-signal DSn                  : std_logic;
 signal DS1392_OUT           : std_logic;
 signal DS1392_OUT_EN        : std_logic;
-signal DSACKn               : std_logic_vector(1 downto 0);
 signal DTACK_INn            : std_logic;
 signal DTACK_OUT_BLTn       : std_logic;
 signal DTACK_OUT_GLUEn      : std_logic;
 signal DTACK_OUT_MCUn       : std_logic;
 signal DTACK_OUT_MFPn       : std_logic;
 signal DTACK_OUT_IDEn       : std_logic;
+signal DTACKn_OUT_SCUn      : std_logic;
 signal E_I                  : std_logic;
-signal EINT5n               : std_logic;
+signal SCCINTn              : std_logic;
 signal EOPn_5380            : std_logic;
 signal EXT_RAMn             : std_logic;
-signal FC_OUT_68K30L        : std_logic_vector(2 downto 0);
+signal FC_OUT_68K10         : std_logic_vector(2 downto 0);
 signal FC_OUT_BLT           : std_logic_vector(2 downto 0);
 signal FC_OUT_GLUE          : std_logic_vector(2 downto 0);
 signal FCLK_I               : std_logic;
@@ -674,7 +870,7 @@ signal FDINT                : std_logic;
 signal FDRQ                 : std_logic;
 signal FLASH_RESET_In       : std_logic;
 signal FLASH_WAITSTATEn     : std_logic;
-signal HALT_68K30Ln         : std_logic;
+signal HALT_68K10n          : std_logic;
 signal HALT_INn             : std_logic;
 signal HDACK_In             : std_logic;
 signal HDCS_In              : std_logic;
@@ -699,7 +895,7 @@ signal LATCHn               : std_logic;
 signal LCD_USBn             : std_logic;
 signal LDATA_OUT            : std_logic_vector(3 downto 0);
 signal LDATA_EN             : std_logic_vector(3 downto 0);
-signal LDS_68K30Ln          : std_logic;
+signal LDS_OUT_68K10n       : std_logic;
 signal LDS_OUT_GLUEn        : std_logic;
 signal LDS_OUT_BLTn         : std_logic;
 signal MAD                  : std_logic_vector(9 downto 0);
@@ -725,7 +921,7 @@ signal RDY_GLUEn            : std_logic;
 signal RESET_Sn             : std_logic;
 signal RESET_CORE_Sn        : std_logic;
 signal RESET_INn            : std_logic;
-signal RESET_EN_68K30L      : std_logic;
+signal RESET_EN_68K10       : std_logic;
 signal RESET_BOOTn          : std_logic;
 signal RESET_MCUn           : std_logic;
 signal RESET_5380           : std_logic;
@@ -734,7 +930,7 @@ signal ROMSEL_FC_E0n        : std_logic;
 signal RP5C15_CSn           : std_logic;
 signal RP5C15_WRn           : std_logic;
 signal RP5C15_RDn           : std_logic;
-signal RWn_OUT_68K30L       : std_logic;
+signal RWn_OUT_68K10        : std_logic;
 signal RWn_OUT_BLT          : std_logic;
 signal RWn_OUT_GLUE         : std_logic;
 signal SCC_RDn              : std_logic;
@@ -781,7 +977,6 @@ signal SHADOW_VRAM_ADR      : std_logic_vector(14 downto 0);
 signal SHADOW_VRAM_WRn      : std_logic;
 signal SINT_IO7             : std_logic;
 signal SINT_TAI             : std_logic;
-signal SIZE                 : std_logic_vector(1 downto 0);
 signal SLOADn               : std_logic;
 signal SNDCS_I              : std_logic;
 signal SNDIR_I              : std_logic;
@@ -790,18 +985,17 @@ signal SPI_MISO             : std_logic;
 signal SPI_MOSI             : std_logic;
 signal SREQ                 : std_logic;
 signal SYNC_EN              : std_logic;
-signal SYNCn                : std_logic;
 signal TDO                  : std_logic;
+signal UDS_OUT_68K10n       : std_logic;
 signal UDATA_OUT            : std_logic_vector(3 downto 0);
 signal UDATA_EN             : std_logic_vector(3 downto 0);
-signal UDS_68K30Ln          : std_logic;
 signal UDS_OUT_GLUEn        : std_logic;
 signal UDS_OUT_BLTn         : std_logic;
 signal USB1160_CSn          : std_logic;
 signal VDCLK_OUT            : std_logic;
 signal VPA_INn              : std_logic;
-signal VMA_68K30Ln          : std_logic;
-signal VMA_EN_68K30L        : std_logic;
+signal VMA_OUT_68K10n       : std_logic;
+signal VMA_OUT_EN_68K10     : std_logic;
 signal VSYNC_On             : std_logic;
 signal VIDEO_HIMODE_I       : std_logic;
 signal VPA_GLUE_OUTn        : std_logic;
@@ -863,8 +1057,8 @@ begin
             PLL_FAULT <= '1' or not LCD_USBn;
         elsif PLL1_LOCKED = '0' or PLL2_LOCKED = '0' then
             TMP := TMP -1;
-            PLL_LOCKS <= '1' or not LCD_USBn;
-            PLL_FAULT <= '0';
+            PLL_LOCKS <= '1';
+            PLL_FAULT <= '0' or not LCD_USBn;
         else
             TMP := 31;
             PLL_LOCKS <= '1';
@@ -878,10 +1072,10 @@ begin
     -- The RESET_BOOTn is the bootloader's reset during flash load operation.
     -- The RESET_MCUn is the memory controller's reset during RAM initialisation.
     -- PLL_LOCKS reset the system when the PLLs do not lock.
-    -- RESET_EN_68K30L is the CPU reset output.
+    -- RESET_EN_68K10 is the CPU reset output.
     RESET_INn <= RESET_Sn and RESET_BOOTn and RESET_MCUn and SD_RESETn and PLL_LOCKS;
-    RESETn <= '0' when RESET_EN_68K30L = '1' or (FLASH_RESET_In = '0' and SD_AVR_ENn = '1') or RESET_MCUn = '0' or PLL_LOCKS = '0' else 'Z';
-    HALT_INn <= '0' when HALTn = '0' or (RESET_INn = '0' and RESET_EN_68K30L = '0') else '1';
+    RESETn <= '0' when RESET_EN_68K10 = '1' or (FLASH_RESET_In = '0' and SD_AVR_ENn = '1') or RESET_MCUn = '0' or PLL_LOCKS = '0' else 'Z';
+    HALT_INn <= '0' when HALTn = '0' or (RESET_INn = '0' and RESET_EN_68K10 = '0') else '1';
 
     -------------------- Hardware specific components --------------------
     ----                  This is for a Cyclone II                    ----
@@ -976,7 +1170,7 @@ begin
 
     P_3M672: process
     -- This process provides the 3.6720MHz clock for the SCC.
-    -- It is derived from a 25.6MHz PLL clock divided by 7 
+    -- It is derived from a 25.6MHz PLL clock divided by 7
     -- which results in a 3.6674 MHz clock.
     variable TMP_3M672: std_logic_vector(2 downto 0);
     begin
@@ -986,7 +1180,7 @@ begin
         else
             TMP_3M672 := "000";
         end if;
-        
+
         case TMP_3M672 is
             when "011" | "010" | "001" | "000" => CLK_3M672 <= '0';
             when others => CLK_3M672 <= '1';
@@ -1008,33 +1202,33 @@ begin
         end if;
     end process MEM_DATA_BUFFER;
 
-    DATA_IN_68K30L <= DATA_I(7 downto 0) & DATA_I(15 downto 8) when IDE_BYTESWAP = '1' and IDE_BYTESWAP_EN = true else DATA_I;
-
     DATA <= DATA_OUT_BOOT when DATA_EN_BOOT = '1' else
-            DATA_I when DATA_EN_68K30L = '1' or DATA_EN_BLT = '1' else (others => 'Z');
+            DATA_I when DATA_EN_68K10 = '1' or DATA_EN_BLT = '1' else (others => 'Z');
 
     DATA_I <= DATA when RESET_BOOTn = '0' else -- This is the Flash to bootloader path.
-              DATA_OUT_68K30L(7 downto 0) & DATA_OUT_68K30L(15 downto 8) when DATA_EN_68K30L = '1' and IDE_BYTESWAP = '1' and IDE_BYTESWAP_EN = true else
-              DATA_OUT_68K30L when DATA_EN_68K30L = '1' else
+              DATA_OUT_68K10(7 downto 0) & DATA_OUT_68K10(15 downto 8) when DATA_EN_68K10 = '1' and IDE_BYTESWAP = '1' and IDE_BYTESWAP_EN = true else
+              DATA_OUT_68K10 when DATA_EN_68K10 = '1' else
               DATA_OUT_BLT when DATA_EN_BLT = '1' else
               DATA_OUT_GLUE when DATA_EN_GLUE = '1' else
-              DATA_OUT_MCU & DATA_OUT_MCU when DATA_EN_MCU = '1' else -- x"FF" due to pull up resistors in original hardware.
+              x"FF" & DATA_OUT_MCU when DATA_EN_MCU = '1' else -- x"FF" due to pull up resistors in original hardware.
               DATA_OUT_DMA when DATA_EN_DMA = '1' else
-              DATA_OUT_MFP & DATA_OUT_MFP when DATA_EN_MFP = '1' else --UMA
-              DATA_OUT_SOUND & DATA_OUT_SOUND when DATA_EN_SOUND = '1' else
+              x"FF" & DATA_OUT_MFP when DATA_EN_MFP = '1' else
+              DATA_OUT_SOUND & x"FF" when DATA_EN_SOUND = '1' else
               DATA_OUT_4299 when DATA_EN_4299 = '1' else
-              DATA_OUT_ACIA_I & DATA_OUT_ACIA_I when DATA_EN_ACIA_I = '1' else
-              DATA_OUT_ACIA_II & DATA_OUT_ACIA_II when DATA_EN_ACIA_II = '1' else
-              x"F" & DATA_OUT_RP5C15 & x"F" & DATA_OUT_RP5C15 when DATA_EN_RP5C15 = '1' else
+              DATA_OUT_ACIA_I & x"FF" when DATA_EN_ACIA_I = '1' else
+              DATA_OUT_ACIA_II & x"FF" when DATA_EN_ACIA_II = '1' else
+              x"FFF" & DATA_OUT_RP5C15 when DATA_EN_RP5C15 = '1' else
               DATA_OUT_SCC & DATA_OUT_SCC when DATA_EN_SCC = '1' else -- Byte access.
+              DATA_OUT_SCU & DATA_OUT_SCU when DATA_EN_SCU = '1' else -- Byte access.
               DATA when ROM2n_I = '0' else -- This is the Flash operating system data.
+              DATA_OUT_USB1160 when DATA_EN_USB1160 = '1' else
+              DATA(7 downto 0) & DATA(15 downto 8) when IDE_D_EN_INn = '0' and IDE_BYTESWAP = '1' and IDE_BYTESWAP_EN = true else
               DATA when IDE_D_EN_INn = '0' else
               DATA when BUTTONn = '0' else
               DATA when JOY_RHn = '0' and JOY_RLn = '0'  else
               x"FF" & DATA(7 downto 0) when JOY_RLn = '0' else
               DATA(15 downto 8) & x"FF" when JOY_RHn = '0'else
               "0000000" & CUBDATA  & x"00" when CUBDATAenable_n = '0' else -- Connect to Data8
-              DATA_OUT_USB1160 when DATA_EN_USB1160 = '1' else
               --
               -- The following is the read access from RAM. The data is switched directly to the data bus,
               -- when the LATCH is transparent. The reason is the critical bus timing. Switching the data
@@ -1048,25 +1242,25 @@ begin
                 x"FF" & DATA_SHFT(7 downto 0) when DATA_EN_LO_SHFT = '1' else (others => 'Z');
 
     ADR <= "000" & ADR_OUT_BOOT when ADR_EN_BOOT = '1' else
-           ADR_OUT_68K30L(23 downto 1) when BUS_EN_68K30L = '1' else
+           ADR_OUT_68K10(23 downto 1) when BUS_EN_68K10 = '1' else
            ADR_OUT_BLT(23 downto 1) when ADR_EN_BLT = '1' else (others => 'Z');
 
-    ADR_I <= x"FF" & ADR_OUT_68K30L(23 downto 1) when BUS_EN_68K30L = '1' and ADR_OUT_68K30L(23 downto 16) = x"FF" and CONFIG(5) = '1' else -- Memory map for operating systems non ALTRAM cabaple.
-             x"00" & ADR_OUT_68K30L(23 downto 1) when BUS_EN_68K30L = '1' and CONFIG(5) = '1' else -- Non ALTRAM support.
-             x"FF" & ADR_OUT_68K30L(23 downto 1) when BUS_EN_68K30L = '1' and ADR_OUT_68K30L(31 downto 16) = x"00FF" and CONFIG(5) = '0' else -- Memory map for OS with ALTRAM.
-             x"00" & ADR_OUT_68K30L(23 downto 1) when BUS_EN_68K30L = '1' and ADR_OUT_68K30L(31 downto 16) = x"FFF0" and CONFIG(5) = '0' else -- Memory map IDE for OS with ALTRAM.
-             ADR_OUT_68K30L(31 downto 1) when BUS_EN_68K30L = '1' else -- ALTRAM capable.
-             x"FF" & ADR_OUT_BLT(23 downto 1) when ADR_EN_BLT = '1' and ADR_OUT_BLT(23 downto 16) >= x"FF" else -- Memory map.
+    ADR_I <= x"FF" & ADR_OUT_68K10(23 downto 1) when BUS_EN_68K10 = '1' and ADR_OUT_68K10(23 downto 16) = x"FF" and CONFIG(5) = '1' else -- Memory map for operating systems non ALTRAM cabaple.
+             x"00" & ADR_OUT_68K10(23 downto 1) when BUS_EN_68K10 = '1' and CONFIG(5) = '1' else -- Non ALTRAM support.
+             x"FF" & ADR_OUT_68K10(23 downto 1) when BUS_EN_68K10 = '1' and ADR_OUT_68K10(31 downto 16) = x"00FF" and CONFIG(5) = '0' else -- Memory map for OS with ALTRAM.
+             x"00" & ADR_OUT_68K10(23 downto 1) when BUS_EN_68K10 = '1' and ADR_OUT_68K10(31 downto 16) = x"FFF0" and CONFIG(5) = '0' else -- Memory map IDE for OS with ALTRAM.
+             ADR_OUT_68K10(31 downto 1) when BUS_EN_68K10 = '1' else -- ALTRAM capable.
+             x"FF" & ADR_OUT_BLT(23 downto 1) when ADR_EN_BLT = '1' and ADR_OUT_BLT(23 downto 16) = x"FF" else -- Memory map.
              ADR_OUT_BLT when ADR_EN_BLT = '1' else (others => '1');
 
     FLASH_ADR_19 <= ADR_OUT_BOOT(19) when ADR_EN_BOOT = '1' else
                     '0' when ROMSEL_FC_E0n = '1' else -- Required to get the old TOS' running.
-                    ADR_OUT_68K30L(19) when BUS_EN_68K30L = '1' else
+                    ADR_OUT_68K10(19) when BUS_EN_68K10 = '1' else
                     ADR_OUT_BLT(19) when ADR_EN_BLT = '1' else '1';
 
     FLASH_ADR_18 <= ADR_OUT_BOOT(18) when ADR_EN_BOOT = '1' else
                     '0' when ROMSEL_FC_E0n = '1' else -- Required to get the old TOS' running.
-                    ADR_OUT_68K30L(18) when BUS_EN_68K30L = '1' else
+                    ADR_OUT_68K10(18) when BUS_EN_68K10 = '1' else
                     ADR_OUT_BLT(18) when ADR_EN_BLT = '1' else '1';
 
     -- Operating system ROM:
@@ -1100,12 +1294,13 @@ begin
     -- Video configuration:
     MONOCHROME <= '1' when CRT_PIN4_CLK1 = '0' and CRT_PIN3 = '1' else -- CRT_PIN3 is the external clock select (low active).
                   '1' when CONFIG(1 to 2) = "11" else '0';
+
     MULTISYNC_I <= "11" when CRT_PIN4_CLK1 = '0' and CRT_PIN3 = '1' else -- SM124.
                    not CONFIG(1 to 2);
 
     -- Video section:
-    HSYNC <=     HSYNC_On when SYNC_EN = '1'and MULTISYNC_I = "10" else
-                 not HSYNC_On when SynC_EN = '1' else 'Z';
+    HSYNC <= HSYNC_On when SYNC_EN = '1'and MULTISYNC_I = "10" else
+             not HSYNC_On when SynC_EN = '1' else 'Z';
     VSYNC <= not VSYNC_On when SYNC_EN = '1' else 'Z';
 
     xFF827E_D(2) <= CLK_2; -- On the Suska-III-C this signal is hardwired to the video DAC clock input.
@@ -1203,36 +1398,30 @@ begin
 
     -- Bus controls:
     BERR_In <= BERRn;
-    BERRn <= '0' when BERR_GLUEn = '0' else 'Z';
+    BERRn <= '0' when BERR_GLUEn = '0' or BERRn_SCU = '0' else 'Z';
 
-    HALTn <= '0' when HALT_68K30Ln = '0' else 'Z';
+    HALTn <= '0' when HALT_68K10n = '0' else 'Z';
 
-               -- Workaround: TOS2.xx does not boot with SCCn enabled.
-    DTACKn <= '1' when SCC_RDn = '0' or SCC_WRn = '0' else
-              '0' when DTACK_OUT_BLTn = '0' or DTACK_OUT_GLUEn = '0' else
-              '0' when DTACK_OUT_MCUn = '0' or DTACK_OUT_MFPn = '0' else
-              '0' when DTACK_OUT_IDEn = '0' else 'Z';
-
-    UDSn <= UDS_68K30Ln when BUS_EN_68K30L = '1' else
+    UDSn <= UDS_OUT_68K10n when BUS_EN_68K10 = '1' else
             UDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
             UDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-    LDSn <= LDS_68K30Ln when BUS_EN_68K30L = '1' else
+    LDSn <= LDS_OUT_68K10n when BUS_EN_68K10 = '1' else
             LDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
             LDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
 
      -- The first condition of ASn is important for system
      -- startup. See process FLASH_WS.
     ASn <= '1' when FLASH_WAITSTATEn = '0' else
-           AS_OUT_68K30Ln when BUS_EN_68K30L = '1' else
+           AS_OUT_68K10n when BUS_EN_68K10 = '1' else
            AS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
            AS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-    RWn <= RWn_OUT_68K30L when BUS_EN_68K30L = '1' else
+    RWn <= RWn_OUT_68K10 when BUS_EN_68K10 = '1' else
            RWn_OUT_BLT when BUSCTRL_EN_BLT = '1' else
            RWn_OUT_GLUE when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-    FC <= FC_OUT_68K30L when BUS_EN_68K30L = '1' else
+    FC <= FC_OUT_68K10 when BUS_EN_68K10 = '1' else
           FC_OUT_BLT when BUSCTRL_EN_BLT = '1' else
           FC_OUT_GLUE when BUSCTRL_EN_GLUE = '1' else "ZZZ";
 
@@ -1253,7 +1442,7 @@ begin
                 TMP := TMP + '1';
                 FLASH_WAITSTATEn <= '0';
             else
-                    FLASH_WAITSTATEn <= '1';
+                FLASH_WAITSTATEn <= '1';
             end if;
         end if;
     end process FLASH_WS;
@@ -1268,7 +1457,7 @@ begin
     variable TMP : std_logic_vector(2 downto 0);
     begin
         if CLK_1 = '1' and CLK_1' event then
-          if DTACKn = '1' then
+            if DTACKn = '1' then
                 TMP := "000";
             elsif TMP /= "110" then
                 TMP := TMP + '1';
@@ -1288,8 +1477,15 @@ begin
         end case;
     end process SLOW_CPU;
 
+    DTACKn <=
+-- Workaround: TOS2.xx does not boot with SCCn enabled.
+--'1' when SCC_RDn = '0' or SCC_WRn = '0' else
+              '0' when DTACK_OUT_BLTn = '0' or DTACK_OUT_GLUEn = '0' else
+              '0' when DTACK_OUT_MCUn = '0' or DTACK_OUT_MFPn = '0' else
+              '0' when DTACK_OUT_IDEn = '0' or DTACKn_OUT_SCUn = '0' else 'Z';
+
     VPA_INn <= '0' when VPA_GLUE_OUTn = '0' or VPAn = '0' else '1';
-    VMAn    <=  VMA_68K30Ln when VMA_EN_68K30L = '1' else 'Z';
+    VMAn <=  VMA_OUT_68K10n when VMA_OUT_EN_68K10 = '1' else 'Z';
 
     E <= E_I;
     FCLK <= FCLK_I;
@@ -1299,7 +1495,7 @@ begin
     BGACKn <= '0' when BGACK_BLTn = '0' else 'Z';
 
     -- Interrupt stuff:
-    AVEC_INn <= AVECn and AVEC_GLUEn; -- One Low active signal is sufficient.
+    AVEC_INn <= AVECn and AVEC_GLUEn and AVEC_SCUn; -- One Low active signal is sufficient.
     IRQ_ACIAn <= IRQ_KEYBDn and IRQ_MIDIn;
 
     -- DS1392 RTC interface:
@@ -1310,110 +1506,53 @@ begin
     SDATA_L_4299 <= SDATA_L & x"000";
     SDATA_R_4299 <= SDATA_R & x"000";
 
-    VMA_EN_68K30L <= BUS_EN_68K30L;
+    I_CPU: WF68K10_TOP
+        port map(
+            CLK                     => CLK_1,
 
-    -- Data strobes:
-    UDS_68K30Ln <= '1' when SIZE = "01" and ADR_OUT_68K30L(0) = '1' else DSn;
-    LDS_68K30Ln <= '1' when SIZE = "01" and ADR_OUT_68K30L(0) = '0' else DSn;
+            -- Address and data:
+            ADR_OUT(31 downto 1)    => ADR_OUT_68K10,
+            DATA_IN                 => DATA_I,
+            DATA_OUT                => DATA_OUT_68K10,
+            DATA_EN                 => DATA_EN_68K10,
 
-    -- Synchronous bus timing:
-    DSACKn <= "01" when DTACKn = '0' else -- Any access is 16 bit wide.
-              "10" when SYNCn = '0' else "11"; -- SYNCn is used for interrupt vectoring.
+            -- System control:
+            BERRn                   => BERR_In,
+            RESET_INn               => RESET_INn,
+            RESET_OUT               => RESET_EN_68K10,
+            HALT_INn                => HALT_INn,
+            HALT_OUTn               => HALT_68K10n,
 
-    E_TIMER: process
-    -- The E clock is a free running clock with a period of 10 times
-    -- the CLK period. The pulse ratio is 4 CLK high and 6 CLK low.
-    -- Use a synchronous reset due to FPGA constraints.
-    variable TMP : std_logic_vector(3 downto 0);
-    begin
-        wait until CLK_1 = '1' and CLK_1' event;
-        if RESET_INn = '0' then
-            TMP := x"0";
-            VMA_68K30Ln <= '1';
-            E_I <= '1';
-        elsif TMP < x"9" then
-            TMP := TMP + '1';
-        else
-            TMP := x"0";
-        end if;
+            -- Processor status:
+            FC_OUT                  => FC_OUT_68K10,
 
-        -- E logic:
-        if TMP = x"0" then
-            E_I <= '1';
-        elsif TMP = x"4" then
-            E_I <= '0';
-        end if;
+            -- Interrupt control:
+            AVECn                   => AVEC_INn,
+            IPLn                    => IPLn,
 
-        -- VMA logic:
-        if VPA_INn = '0' and TMP >= x"4" then -- Switch, when E is low.
-            VMA_68K30Ln <= '0';
-        elsif VPA_INn = '1' then
-            VMA_68K30Ln <= '1';
-        end if;
+            -- Aynchronous bus control:
+            DTACKn                  => DTACK_INn,
+            ASn                     => AS_OUT_68K10n,
+            RWn                     => RWn_OUT_68K10,
+            UDSn                    => UDS_OUT_68K10n,
+            LDSn                    => LDS_OUT_68K10n,
+            -- DBENn                => , -- Not used.
+            BUS_EN                  => BUS_EN_68K10,
 
-        -- SYNCn logic (wait states controlling for the 68K30).
-        -- Used for the legacy synchronous bus termination (ACIAs and RTC).
-        if VPA_INn = '0' and VMA_68K30Ln = '0' and TMP = x"2" then -- Adjust E to S6..
-            SYNCn <= '0';
-        elsif VPA_INn = '1' then
-            SYNCn <= '1';
-        end if;
+            -- Synchronous peripheral control:
+            E                       => E_I,
+            VMAn                    => VMA_OUT_68K10n,
+            VMA_EN                  => VMA_OUT_EN_68K10,
+            VPAn                    => VPA_INn,
 
-    end process E_TIMER;
+            -- Bus arbitration control:
+            BRn                     => BR_In,
+            BGn                     => BG_68K10n,
+            BGACKn                  => BGACK_INn,
 
-    I_CPU: WF68K30L_TOP
-    generic map(NO_BFOPS            => NO_BFOPS)
-    port map(
-        CLK                         => CLK_1,
-
-        -- Address and data:
-        --ADR_OUT(31 downto 24)     =>, -- Not used.
-        ADR_OUT                     => ADR_OUT_68K30L,
-        DATA_IN(31 downto 16)       => DATA_IN_68K30L,
-        DATA_IN(15 downto 0)        => x"0000", -- Not used.
-        DATA_OUT(31 downto 16)      => DATA_OUT_68K30L,
-        --DATA_OUT(15 downto 0)     => DATA_OUT_68K30L, -- Not used.
-        DATA_EN                     => DATA_EN_68K30L,
-
-        -- System control:
-        BERRn                       => BERR_In,
-        RESET_INn                   => RESET_INn,
-        RESET_OUT                   => RESET_EN_68K30L,
-        HALT_INn                    => HALT_INn,
-        HALT_OUTn                   => HALT_68K30Ln,
-
-        -- Processor status:
-        FC_OUT                      => FC_OUT_68K30L,
-
-        -- Interrupt control:
-        AVECn                       => AVEC_INn,
-        IPLn                        => IPLn,
-        --IPENDn                    =>, -- Not used.
-
-        -- Aynchronous bus control:
-        DSACKn                      => DSACKn,
-        SIZE                        => SIZE,
-        ASn                         => AS_OUT_68K30Ln,
-        RWn                         => RWn_OUT_68K30L,
-        --RMCn                      =>, -- Not used.
-        DSn                         => DSn,
-        --ECSn                      =>, -- Not used.
-        --OCSn                      =>, -- Not used.
-        --DBENn                     =>, -- Not used.
-        BUS_EN                      => BUS_EN_68K30L,
-
-        -- Synchronous bus control:
-        STERMn                      => '1', -- Not used.
-
-        -- Status controls:
-        --STATUSn                   =>, Not used.
-        --REFILLn                   =>, Not used.
-
-        -- Bus arbitration control:
-        BRn                         => BR_In,
-        BGn                         => BG_68K30Ln,
-        BGACKn                      => BGACK_INn
-    );
+            -- Other controls:
+            K6800n                  => not CONFIG(3) -- Switch on for 68K10 CPU. Off = 68K00 CPU.
+        );
 
     I_BLITTER: WF101643IP_TOP_SOC
         port map(
@@ -1446,7 +1585,7 @@ begin
             DATA_EN             => DATA_EN_BLT,
 
             -- Bus arbitration:
-            BGIn                => BG_68K30Ln,
+            BGIn                => BG_68K10n,
             BGKIn               => BGACK_GLUEn,
             BRn                 => BR_BLTn,
             BGACK_INn           => BGACK_INn,
@@ -1487,7 +1626,7 @@ begin
 
             -- 6800 peripheral control:
             VPAn                => VPA_GLUE_OUTn,
-            VMAn                => VMA_68K30Ln,
+            VMAn                => VMA_OUT_68K10n,
 
             DEVn                => DEV_In,
             RAMn                => RAMn,
@@ -1500,13 +1639,13 @@ begin
             STE_HDINTn          => HDINT_INn,
             MFPINTn             => MFPINTn,
             STE_EINT3n          => EINT3n,
-            STE_EINT5n          => EINT5n,
+            STE_EINT5n          => SCCINTn,
             STE_EINT7n          => EINT7n,
             STE_DINTn           => DINTn,
-            IACKn               => MFP_IACKn,
-            STE_IPL2n           => IPLn(2),
-            STE_IPL1n           => IPLn(1),
-            STE_IPL0n           => IPLn(0),
+--            IACKn               => MFP_IACKn,
+--            STE_IPL2n           => IPLn(2),
+--            STE_IPL1n           => IPLn(1),
+--            STE_IPL0n           => IPLn(0),
 
             -- Video timing:
             BLANKn              => BLANKn,
@@ -1571,7 +1710,7 @@ begin
             STE_PENn            => PENn,
             SCCRDn              => SCC_RDn,
             SCCWRn              => SCC_WRn,
-            SCCIACKn            => SCC_IACKn,
+--            SCCIACKn            => SCC_IACKn,
             SCCWAITn            => SCC_WAITn,
             -- STE_CPROGn       => -- Not used yet.
 
@@ -1958,6 +2097,7 @@ begin
         port map(
             RESETn              => RESET_INn,
             CLK                 => CLK_1,
+
             -- The bus interface:
             ADR                 => ADR_I(4 downto 1),
             DATA_IN             => DATA_I(3 downto 0),
@@ -1976,8 +2116,8 @@ begin
             SPI_CE              => DS1392_CE
         );
 
-    I_SCCI_SCC: SCC8530_TOP
-    -- The SCC is wired as follows: 
+    I_SCC: SCC8530_TOP
+    -- The SCC is wired as follows:
     -- This core use the Falcon wiring.
     --          TT machine          Falcon
     -- TRxCA    LCLK                SCC connector Pin 7
@@ -1987,32 +2127,32 @@ begin
         port map(
             -- System controls:
             PCLK                    => CLK_1,
-    
+
             -- Bus:
             DATA_IN                 => DATA_I(7 downto 0),
             DATA_OUT                => DATA_OUT_SCC,
             DATA_EN                 => DATA_EN_SCC,
-    
+
             -- Bus controls:
             CEn                     => '0',
             RDn                     => SCC_RDn,
             WRn                     => SCC_WRn,
-            A_Bn                    => not ADR_I(2),
+            A_Bn                    => ADR_I(2),
             D_Cn                    => ADR_I(1),
-    
+
             -- Interrupt:
             INTACKn                 => SCC_IACKn,
             IEI                     => '1',
             --IEO                   => , -- Not used.
-            INTn                    => EINT5n,
-    
+            INTn                    => SCCINTn,
+
             -- Serial Data:
             RxDA                    => '1', -- SCC_RDA
 --            TxDA                    => SCC_TDA
             --TxDA_EN               => -- Not used.
             RxDB                    => SCC_RxDB,
             TxDB                    => SCC_TxDB,
-    
+
             -- Channel clocks:
 TRxCA_INn               => '1', --SCC_TRXCA,
             --TRxCA_OUTn            => , -- Not used.
@@ -2022,7 +2162,7 @@ TRxCA_INn               => '1', --SCC_TRXCA,
             --TRxCB_OUTn            => , -- Not used.
             --TRxCB_EN              => , -- Not used.
             RTxCBn                  => CLK_3M672,
-    
+
             -- Channel controls:
 SYNCA_IN                => '1', --SCC_SYNCA,
             --SYNCA_OUT             => , -- Not used.
@@ -2046,6 +2186,7 @@ DCDBn                   => '1' -- SCC_CDB
         port map(
             CLK                 => CLK_1,
             RESETn              => RESET_INn,
+
             CR_Wn               => CR_Wn,
             CA1                 => CA1,
             HDCSn               => ACSI_SCSI_CSn,
@@ -2132,7 +2273,7 @@ DCDBn                   => '1' -- SCC_CDB
             RESETn              => RESET_INn,
             CLK                 => CLK_1,
 
-            ADR                 => ADR_I(31 downto 1),
+            ADR                 => ADR_I,
             DATA_IN             => DATA_I(7 downto 0),
 
             ASn                 => ASn,
@@ -2193,6 +2334,69 @@ DCDBn                   => '1' -- SCC_CDB
             BOOT_ACK                => BOOT_ACK,
             BOOT_REQ                => BOOT_REQ,
             BOOT_LED                => BOOT_LED
+        );
+
+    BOOT_RESET_COREn <= SD_RESET_COREn when SD_AVR_ENn = '0' else RESET_CORE_Sn;
+    BOOT_RESETn <= SD_RESETn when SD_AVR_ENn = '0' else RESET_Sn;
+    BOOT_ACK <= SD_BOOT_ACK when  SD_AVR_ENn = '0' else SYS_BOOT_ACK;
+    SPI_CLK <= SD_SPI_CLK when SD_AVR_ENn = '0' else SYS_SPI_CLK;
+    SPI_MOSI <= SD_SPI_MOSI when SD_AVR_ENn = '0' else SYS_SPI_MOSI;
+    SD_BOOT_REQ <= BOOT_REQ when SD_AVR_ENn = '0' else '0';
+    SYS_BOOT_REQ <= BOOT_REQ when SD_AVR_ENn = '1' else '0';
+    SD_SPI_MISO <= SPI_MISO when SD_AVR_ENn = '0' else '0';
+    SYS_SPI_MISO <= SPI_MISO when SD_AVR_ENn = '1' else '0';
+
+    I_SCU: TTSCU -- The wiring of the SCU is like the Mega ST.
+        port map(
+            -- System and core control:
+            RESET                   => RESET_INn,
+            CLK                     => CLK_1,
+
+            -- Adress and data bus:
+            ADR(31 downto 1)        => ADR_I,
+            ADR(0)                  => '0',
+            ASn                     => ASn,
+            FC                      => FC,
+
+            DATA_IN                 => DATA_I(7 downto 0),
+            DATA_OUT                => DATA_OUT_SCU,
+            DATA_EN                 => DATA_EN_SCU,
+
+            -- Bus control:
+            RWn                     => RWn,
+            LDSn                    => LDSn,
+            SIZE                    => "00",
+            DTACKn                  => DTACKn_OUT_SCUn,
+            BERRn                   => BERRn_SCU,
+
+            --FPUn                  => , -- Nou'1' tsed.
+            --IOCS1n                => , -- Nou6tsed.
+            --IOCS2n                => , -- Nou tsed.
+            --MFP1n                 => , -- Nou t'1'sed (GLUE).
+            --MFP2n                 => , -- Nou tsed.'1''1'
+            AVECn                   => AVEC_SCUn,
+            IPLn                    => IPLn,
+            IACK5n                  => SCC_IACKn,
+            IACK6n                  => MFP_IACKn,
+
+            --SYSIn                 => , -- Not used.
+            SIRQn                   => SIRQn_SCU,
+
+            SIR7n                   => EINT7n,
+            SIR6n                   => MFPINTn,
+            SIR5n                   => SCCINTn,
+            SIR3n                   => EINT3n,
+
+            HSYNCn                  => not HSYNC,
+            VSYNCn                  => not VSYNC,
+
+            BIRn(7)                 => '1',
+            BIRn(6)                 => MFPINTn,
+            BIRn(5)                 => SCCINTn,
+            BIRn(4)                 => '1',
+            BIRn(3)                 => SIRQn_SCU,
+            BIRn(2)                 => '1',
+            BIRn(1)                 => '1'
         );
 
    I_USB: USB1164_TOP
@@ -2263,12 +2467,12 @@ DCDBn                   => '1' -- SCC_CDB
         end if;
     end process LCD_USB_SWITCH;
 
-    LDATA_EN <= x"F" when LCD_USBn = '1' else 
+    LDATA_EN <= x"F" when LCD_USBn = '1' else
                 x"F" when DPM2_EN = '1' and DPM4_EN = '1' else
                 x"5" when DPM2_EN = '1' else
                 x"A" when DPM4_EN = '1' else x"0";
-    
-    UDATA_EN <= x"F" when LCD_USBn = '1' else 
+
+    UDATA_EN <= x"F" when LCD_USBn = '1' else
                 x"F" when DPM1_EN = '1' and DPM3_EN = '1' else
                 x"5" when DPM1_EN = '1' else
                 x"A" when DPM3_EN = '1' else x"0";
@@ -2281,14 +2485,4 @@ DCDBn                   => '1' -- SCC_CDB
     UDATA(2) <= UDATA_OUT(2) when LCD_USBn = '1' else DM1_OUT when UDATA_EN(2) = '1' else 'Z';
     UDATA(1) <= UDATA_OUT(1) when LCD_USBn = '1' else DP3_OUT when UDATA_EN(1) = '1' else 'Z';
     UDATA(0) <= UDATA_OUT(0) when LCD_USBn = '1' else DP1_OUT when UDATA_EN(0) = '1' else 'Z';
-
-    BOOT_RESET_COREn <= SD_RESET_COREn when SD_AVR_ENn = '0' else RESET_CORE_Sn;
-    BOOT_RESETn <= SD_RESETn when SD_AVR_ENn = '0' else RESET_Sn;
-    BOOT_ACK <= SD_BOOT_ACK when  SD_AVR_ENn = '0' else SYS_BOOT_ACK;
-    SPI_CLK <= SD_SPI_CLK when SD_AVR_ENn = '0' else SYS_SPI_CLK;
-    SPI_MOSI <= SD_SPI_MOSI when SD_AVR_ENn = '0' else SYS_SPI_MOSI;
-    SD_BOOT_REQ <= BOOT_REQ when SD_AVR_ENn = '0' else '0';
-    SYS_BOOT_REQ <= BOOT_REQ when SD_AVR_ENn = '1' else '0';
-    SD_SPI_MISO <= SPI_MISO when SD_AVR_ENn = '0' else '0';
-    SYS_SPI_MISO <= SPI_MISO when SD_AVR_ENn = '1' else '0';
 end architecture STRUCTURE;

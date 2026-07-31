@@ -184,9 +184,9 @@ use ieee.std_logic_unsigned.all;
 
 entity SUSKA_III_B_STE_68K00_TOP is
     generic(CORETYPE                : std_logic_vector(15 downto 0) := x"0100"; -- Core Type is 'Board B Suska-STE-68K00'.
-            VERSION                 : std_logic_vector(31 downto 0) := x"20230620"; -- Core version.
+            VERSION                 : std_logic_vector(31 downto 0) := x"20250620"; -- Core version.
             HALFMOONS_STE           : std_logic_vector(8 downto 1) := x"BF"; -- This is the STE configuration switch.
-            NO_FLOPPY               : boolean := false; -- Set true to disable floppy on SD card otherwise false.
+            NO_FLOPPY               : boolean := true; -- Set true to disable floppy on SD card otherwise false.
             EN_RAM_14MB             : std_logic := '1'; -- '1' to enable the 14MB memory, '0' is 4MB.
             MFP_UART_FIXED_SPEED    : boolean := false); -- Set true to use fixed Speed 38400bd
 
@@ -451,7 +451,6 @@ signal BLANKn                       : std_logic;
 signal MONOCHROME                   : std_logic;
 signal AVECn                        : std_logic;
 signal MFPINTn                      : std_logic;
-signal IACKn                        : std_logic;
 signal RDY_DMAn                     : std_logic;
 signal RDY_GLUEn                    : std_logic;
 signal DINTn                        : std_logic;
@@ -482,6 +481,7 @@ signal IRQ_KEYBDn                   : std_logic;
 signal IRQ_MIDIn                    : std_logic;
 signal DE_I                         : std_logic;
 signal DE_MSYNC                     : std_logic;
+signal MFP_IACKn                    : std_logic;
 signal MULTISYNC_I                  : std_logic_vector(1 downto 0);
 signal VIDEO_HIMODE_I               : std_logic;
 signal DS1392_OUT                   : std_logic;
@@ -832,8 +832,8 @@ begin
              LDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
              LDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else '1';
 
-     -- The first condition of ASn is important for the GLUE's bus error
-     -- logic. See process FLASH_WS.
+     -- The first condition of ASn is important for system
+     -- startup. See process FLASH_WS.
     ASn <= '1' when FLASH_WAITSTATEn = '0' else
            AS_OUT_68K00n when AS_OUT_EN_68K00 = '1' else
            AS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
@@ -898,8 +898,7 @@ begin
         end case;
     end process SLOW_CPU;
 
-    DTACKn <= '1' when FLASH_WAITSTATEn = '0' else -- After a system reset, see process FLASH_WS.
-              '0' when DTACK_OUT_BLTn = '0' or DTACK_OUT_GLUEn = '0' else
+    DTACKn <= '0' when DTACK_OUT_BLTn = '0' or DTACK_OUT_GLUEn = '0' else
               '0' when DTACK_OUT_MCUn = '0' or DTACK_OUT_MFPn = '0' else '1';
 
     -- Bus arbitration request:
@@ -1080,7 +1079,7 @@ begin
             STE_EINT5n              => '1',
             STE_EINT7n              => '1',
             STE_DINTn               => DINTn,
-            IACKn                   => IACKn,
+            IACKn                   => MFP_IACKn,
             STE_IPL2n               => IPLn(2),
             STE_IPL1n               => IPLn(1),
             STE_IPL0n               => IPLn(0),
@@ -1146,7 +1145,6 @@ begin
             STE_PAD1Yn              => '1',
             -- STE_PADRSTn          =>,
             STE_PENn                => '1',
-            --SCCABn                => not used.
             --SCCRDn                => not used.
             --SCCWRn                => not used.
             --SCCIACKn              => not used.
@@ -1385,7 +1383,7 @@ begin
             -- GPIP_EN              =>, -- Not used; all GPIPs are direction input.
 
             -- Interrupt control:
-            IACKn                   => IACKn,
+            IACKn                   => MFP_IACKn,
             IEIn                    => '0',
             -- IEOn                 =>, -- Not used.
             IRQn                    => MFPINTn,

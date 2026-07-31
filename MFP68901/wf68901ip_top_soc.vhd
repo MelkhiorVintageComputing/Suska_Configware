@@ -177,7 +177,7 @@ begin
 	-- Data acknowledge handshake is provided by the following statement and the consecutive two
 	-- processes. For more information refer to the M68000 family reference manual.
 	DTACK_In <= '0' when CSn = '0' and DSn = '0' and RS <= "10111" else -- Read and write operation.
-				'0' when IACKn = '0' and DSn = '0' and IEIn = '0' else '1'; -- Interrupt vector data acknowledge.
+     			'0' when IACKn = '0' and DSn = '0' and IEIn = '0' else '1'; -- Interrupt vector data acknowledge.
 
     DTACK_OUT: process
     -- The DTACKn port pin is released on the falling clock edge after the data

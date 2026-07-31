@@ -83,6 +83,8 @@
 --   Extra RAM from => x"00E80000" to < x"00F00000".
 -- Revision 2K24A 20240620
 --   SCC enhancements.
+-- Revision 2K24B 20241224
+--   To improve data integrity the address decoder uses UDSn and LDSn where possible.
 --
 
 library ieee;
@@ -123,7 +125,6 @@ entity WF25915IP_ADRDEC is
             A4299_CS        : out std_logic; -- Select signal for the audio codec.
             FCSn            : out std_logic; -- Select signal for harddrive / floppy via DMA.
             SCCn            : out std_logic; -- Select signal for the STE or TT SCC chip.
-            SCCABn          : out std_logic; -- Select signal for the STE or TT SCC chip.
             CPROGn          : out std_logic; -- Select signal for the STE's cache processor.
             HD_REG_CSn      : out std_logic; -- Select signal for the high density floppy control register.
             RTCCSn          : out std_logic; -- Select signal for the real time clock.
@@ -205,8 +206,8 @@ begin
             '0' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and RWn = '1' and (SU = true or US = true) else '1'; -- Validation for RTC.
 
     -- Select MFP (8 bit access), write access in superuser mode:
-    MFPCSn <=   '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and ADR_I < x"FFFFFA40" and  RWn = '0' and SU = true else
-                '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and ADR_I < x"FFFFFA40" and RWn = '1' and (SU = true or US = true) else '1';
+    MFPCSn <=   '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and LDSn = '0' and ADR_I < x"FFFFFA40" and  RWn = '0' and SU = true else
+                '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and LDSn = '0' and ADR_I < x"FFFFFA40" and RWn = '1' and (SU = true or US = true) else '1';
 
     -- This is the CS4299 chip enable. Access in superuser and user mode. Always word access.
     A4299_CS <= '1' when ASn = '0' and UDSn = '0' and LDSn = '0' and ADR_I >= x"FFFF8820" and ADR_I < x"FFFF882E" and (SU = true or US = true) else '0';
@@ -238,6 +239,20 @@ begin
                   '0' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF860E" and RWn = '1' and (SU = true or US = true) else '1';
 
     -- Write access only in SU mode:
+    --SCCn <= '0' when ASn = '0' and ADR_I = x"FFFF8C80" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C82" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C84" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C86" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C80" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C82" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C84" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C86" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else '1';
+
+    
+    -- Write access only in SU mode:
+    -- TOS and EmuTOS tests the presence of the SCC chip by a read access to register x"FFFF8C80". The
+    -- correct address of the SCC is x"FFFF8C81". To be compatible with this issue of TOS and EmuTOS the
+    -- address decoder accepts even and odd addresses (omit LDSn).
     SCCn <= '0' when ASn = '0' and ADR_I = x"FFFF8C80" and RWn = '0' and SU = true else
             '0' when ASn = '0' and ADR_I = x"FFFF8C82" and RWn = '0' and SU = true else
             '0' when ASn = '0' and ADR_I = x"FFFF8C84" and RWn = '0' and SU = true else
@@ -247,40 +262,37 @@ begin
             '0' when ASn = '0' and ADR_I = x"FFFF8C84" and RWn = '1' and (SU = true or US = true) else
             '0' when ASn = '0' and ADR_I = x"FFFF8C86" and RWn = '1' and (SU = true or US = true) else '1';
 
-    SCCABn <= '1' when ASn = '0' and ADR_I = x"FFFF8C80" and (SU = true or US = true) else
-              '1' when ASn = '0' and ADR_I = x"FFFF8C82" and (SU = true or US = true) else '0';
-
     --  -- Cache control register: Write access only in SU mode:
-    --  CPROGn <=   '0' when ASn = '0' and ADR_I = x"FFFF8E20" and RWn = '0' and SU = true else
-    --              '0' when ASn = '0' and ADR_I = x"FFFF8E22" and RWn = '0' and SU = true else
-    --              '0' when ASn = '0' and ADR_I = x"FFFF8E20" and RWn = '1' and (SU = true or US = true) else
-    --              '0' when ASn = '0' and ADR_I = x"FFFF8E22" and RWn = '1' and (SU = true or US = true) else '1';
+    --  CPROGn <=   '0' when ASn = '0' and ADR_I = x"FFFF8E20" and LDSn = '0' and RWn = '0' and SU = true else
+    --              '0' when ASn = '0' and ADR_I = x"FFFF8E22" and LDSn = '0' and RWn = '0' and SU = true else
+    --              '0' when ASn = '0' and ADR_I = x"FFFF8E20" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --              '0' when ASn = '0' and ADR_I = x"FFFF8E22" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else '1';
     CPROGn <= '1';
 
     -- Read access only for the buttons:
-    BUTTON_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9200" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 16 bit.
+    BUTTON_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9200" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 8 bit.
 
     -- Write access only in supervisor mode:
-    JOY_CS <= '1' when ASn = '0' and ADR_I = x"FFFF9202" and RWn = '0' and SU = true else
-              '1' when ASn = '0' and ADR_I = x"FFFF9202" and RWn = '1' and (SU = true or US = true) else '0';
+    JOY_CS <= '1' when ASn = '0' and ADR_I = x"FFFF9202" and UDSn = '0' and RWn = '0' and SU = true else
+            '1' when ASn = '0' and ADR_I = x"FFFF9202" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0';
 
-    PAD0X_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9210" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
-    PAD0Y_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9212" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
-    PAD1X_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9214" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
-    PAD1Y_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9216" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
+    PAD0X_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9210" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
+    PAD0Y_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9212" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
+    PAD1X_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9214" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
+    PAD1Y_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9216" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
 
-    XPEN_REG_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9220" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 16 bit.
-    YPEN_REG_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9222" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 16 bit.
+    XPEN_REG_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9220" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 16 bit.
+    YPEN_REG_CS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9222" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 16 bit.
 
     -- Select RTC, write access in supervisor mode:
-    RTCCSn <= '0' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and RWn = '0' and SU = true else
-              '0' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and RWn = '1' and (SU = true or US = true) else '1';
+    RTCCSn <= '0' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and LDSn = '0' and RWn = '0' and SU = true else
+            '0' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else '1';
 
     -- Peripheral acess control, not valid during DMA transfer:
     DEVn <= '0' when RESETn = '0' else
             '0' when ADR_I(31 downto 16) = x"FFFF" and ASn = '0' and SU = true else '1';
 
-    -- User RAM: The ASn control signal decoding is done in the MMU where RAMn is associated.
+    -- User RAM: The ASn control signal decoding is done in the MMU.
     -- SU RAM in write mode (no ASn decoding):
     RAMn <= '0' when RESETn = '0' else
             '0' when DMAn = '0' else -- Do not decode with ASn, see GLUE's bus arbiter MCU_SYNC process.
@@ -293,10 +305,9 @@ begin
     ALTRAMn <= '1' when EN_RAM_14MB = '0' else -- Disable ALTRAM when we are in 4MB mode.
                '0' when ADR_I >= x"01000000" and ADR_I < x"04000000" and ASn = '0' and (SU = true or US = true) else '1'; -- This are additional 48MB :-)
 
-    SHADOW_TOS_CSn <= '0' when ASn = '0' and ADR_I = x"00F82000" and (SU = true or US = true) else '1';
+    SHADOW_TOS_CSn <= '0' when ASn = '0' and ADR_I = x"00F82000" and UDSn = '0' and (SU = true or US = true) else '1';
 
     -- ISP1160 compatible core chip select:
     USB1160_CSn <= '0' when ASn = '0' and (ADR_I = x"00F80000" or ADR_I = x"00F80004") and (SU = true or US = true) else '1';
-
-    Lightning_CSn <= '0' when ASn = '0' and ADR_I = x"00F80008" and (SU = true or US = true) else '1';
+    Lightning_CSn <= '0' when ASn = '0' and ADR_I = x"00F80008" and LDSn = '0' and (SU = true or US = true) else '1'; -- 0x00F80009.
 end BEHAVIOR;

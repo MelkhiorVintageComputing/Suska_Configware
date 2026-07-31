@@ -366,7 +366,6 @@ package SUSKA_CORE_B_STE_PKG is
             STE_CPROGn   	: out std_logic; -- Select signal for the STE's cache processor.
 
             -- SCC chip:
-            SCCABn          : out std_logic;
             SCCRDn          : out std_logic;
             SCCWRn          : out std_logic;
             SCCIACKn        : out std_logic;
@@ -504,6 +503,7 @@ package SUSKA_CORE_B_STE_PKG is
             FDD_D0SELn          : in std_logic;
             FDD_SDSEL           : in std_logic;
             FDD_DRIVETYPE       : in std_logic;
+            FDD_DISKCHNG        : out std_logic;
             FDD_RDn             : out std_logic;
             FDD_TR00n           : out std_logic;
             FDD_IPn             : out std_logic;

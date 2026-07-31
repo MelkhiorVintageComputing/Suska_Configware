@@ -163,7 +163,8 @@
 -- Revision 2K24A 20240620
 --   We have now a four port root hub USB controller.
 --   Implemented dual use of the LCD port to meet the requirement for a new USB extension board.
---   The SCC chip is now wired.
+-- Revision 2K25A 20250620
+--   Several code clean ups.
 --
 --   !!! See the header for actual configuration switch settings!!!
 
@@ -177,7 +178,7 @@ use ieee.numeric_std.all;
 
 entity SUSKA_III_C_FALCON_68K30L_TOP is
     generic(CORETYPE                : std_logic_vector(15 downto 0) := x"0520"; -- Core Type is 'Board C Suska-Falcon-68K30L'.
-            VERSION                 : std_logic_vector(31 downto 0) := x"20230620"; -- Core version.
+            VERSION                 : std_logic_vector(31 downto 0) := x"20250620"; -- Core version.
             IDE_BYTESWAP_EN         : boolean := false; -- Select true or false. See file header for more information.
             HALFMOONS_I             : std_logic_vector(8 downto 1) := x"BF"; -- Configuration switches.
             HALFMOONS_II            : std_logic_vector(6 downto 1) := "101111"; -- Configuration switches. The upper two significant bits are now CONFIG(1 to 2).
@@ -334,13 +335,11 @@ entity SUSKA_III_C_FALCON_68K30L_TOP is
 
         -- MIDI:
         UART_MIDI_RTSn      : out std_logic; -- Not used in original ST machines.
+        UART_MIDI_CTSn      : in std_logic;
+        UART_MIDI_DCDn      : in std_logic;
         MIDI_OLR            : out std_logic; -- Open drain.
         MIDI_TLR            : out std_logic; -- Open drain.
         MIDI_IN             : in std_logic;
-
-        -- Serial Interfaces:
-        SCC_TxDB            : out std_logic;
-        SCC_RxDB            : in std_logic;
 
         -- COM Port:
         COM_RxD             : in std_logic;
@@ -536,7 +535,6 @@ signal CLK_2M457600         : std_logic;
 signal CLK_2M0              : std_logic;
 signal CLK_0M5              : std_logic;
 signal CLK_0M5_W            : std_logic;
-signal CLK_3M672            : std_logic;
 signal CLK_38400x16         : std_logic;
 signal CLK_CPU              : std_logic;
 signal CLK_MFP_UART         : std_logic;
@@ -571,8 +569,6 @@ signal DATA_OUT_RP5C15      : std_logic_vector(3 downto 0);
 signal DATA_EN_RP5C15       : std_logic;
 signal DATA_OUT_BOOT        : std_logic_vector(15 downto 0);
 signal DATA_EN_BOOT         : std_logic;
-signal DATA_EN_SCC          : std_logic;
-signal DATA_OUT_SCC         : std_logic_vector(7 downto 0);
 signal DATA_OUT_USB1160     : std_logic_vector(15 downto 0);
 signal DATA_EN_USB1160      : std_logic;
 signal DATA_OUT_VIDEL       : std_logic_vector(15 downto 0);
@@ -596,6 +592,7 @@ signal RAM_D_OUT            : std_logic_vector(15 downto 0);
 signal RAM_D_EN             : std_logic;
 signal DC_5380              : std_logic_vector(7 downto 0);
 signal VCS                  : std_logic;
+signal VIDEL_WAITSTATE              : std_logic;
 signal VDCLK_OUT            : std_logic;
 signal VLDn                 : std_logic;
 signal VREQ                 : std_logic;
@@ -608,7 +605,6 @@ signal DTACKn_CMBL          : std_logic;
 signal DTACKn_DMA           : std_logic;
 signal DTACKn_MFP           : std_logic;
 signal E_I                  : std_logic;
-signal EINT5n               : std_logic;
 signal EVENn_ODD            : std_logic;
 signal FC_68K30L            : std_logic_vector(2 downto 0);
 signal FC_CMBL              : std_logic_vector(2 downto 0);
@@ -634,7 +630,6 @@ signal HDRQ_IN              : std_logic;
 signal HINT                 : std_logic;
 signal HSYNC_EN             : std_logic;
 signal HSYNC_VIDEL          : std_logic;
-signal IACKn                : std_logic;
 signal IDE_BYTESWAP         : std_logic;
 signal LCD_USBn             : std_logic;
 signal LDATA_OUT            : std_logic_vector(3 downto 0);
@@ -650,6 +645,7 @@ signal LDSn_68K30L          : std_logic;
 signal LDSn_CMBL            : std_logic;
 signal LDSn_DMA             : std_logic;
 signal MFP_CS_In            : std_logic;
+signal MFP_IACKn            : std_logic;
 signal MFP_SO               : std_logic;
 signal MFP_SO_EN            : std_logic;
 signal MFPINTn              : std_logic;
@@ -668,14 +664,12 @@ signal RESET_MCUn           : std_logic;
 signal RP5C15_CSn           : std_logic;
 signal RP5C15_WRn           : std_logic;
 signal RP5C15_RDn           : std_logic;
+signal RTCCS_DS1287         : std_logic;
 signal RWn_68K30L           : std_logic;
 signal RWn_CMBL             : std_logic;
 signal RWn_DMA              : std_logic;
-signal SCC_ABn              : std_logic;
 signal SCC_RDn              : std_logic;
 signal SCC_WRn              : std_logic;
-signal SCC_IACKn            : std_logic;
-signal SCC_WAITn            : std_logic;
 signal SCSI_CTRL_EN         : std_logic;
 signal SCSI_D_5380          : std_logic_vector(7 downto 0);
 signal SCSI_EN_5380         : std_logic;
@@ -860,25 +854,6 @@ begin
         CLK_38400x16 <= TMP_2M54(5);
     end process P_2M4576;
 
-    P_3M672: process
-    -- This process provides the 3.6720MHz clock for the SCC.
-    -- It is derived from a 25.6MHz PLL clock divided by 7 
-    -- which results in a 3.6674 MHz clock.
-    variable TMP_3M672: std_logic_vector(2 downto 0);
-    begin
-        wait until CLK_PLL_256 = '1' and CLK_PLL_256' event;
-        if TMP_3M672 < "110" then
-            TMP_3M672 := TMP_3M672 + '1';
-        else
-            TMP_3M672 := "000";
-        end if;
-        
-        case TMP_3M672 is
-            when "011" | "010" | "001" | "000" => CLK_3M672 <= '0';
-            when others => CLK_3M672 <= '1';
-        end case;
-    end process P_3M672;
-
     CLK_MFP_UART <= TDO when MFP_UART_FIXED_SPEED = false else CLK_38400x16;
     CLK_AUX <= CLK_PLL_256;
 
@@ -895,7 +870,6 @@ begin
               DATA_OUT_ACIA_I & DATA_OUT_ACIA_I when DATA_EN_ACIA_I = '1' else
               DATA_OUT_ACIA_II & DATA_OUT_ACIA_II when DATA_EN_ACIA_II = '1' else
               x"F" & DATA_OUT_RP5C15 & x"F" & DATA_OUT_RP5C15 when DATA_EN_RP5C15 = '1' else
-              DATA_OUT_SCC & DATA_OUT_SCC when DATA_EN_SCC = '1' else -- Byte access.
               DATA(7 downto 0) & DATA(15 downto 8) when IDE_D_EN_INn = '0' and IDE_BYTESWAP = '1' and IDE_BYTESWAP_EN = true else
               DATA when IDE_D_EN_INn = '0' else
               DATA when BUTTONn = '0' else
@@ -921,7 +895,7 @@ begin
              x"00" & ADR_68K30L(23 downto 0) when BUS_EN_68K30L = '1' and ADR_68K30L(31 downto 16) = x"FFF0" and CONFIG(5) = '0' else -- Memory map IDE for OS with ALTRAM.
              x"00" & ADR_68K30L(23 downto 0) when BUS_EN_68K30L = '1' and CONFIG(5) = '1' else -- Non ALTRAM support.
              ADR_68K30L when BUS_EN_68K30L = '1' else -- ALTRAM capable.
-             x"FF" & ADR_COMBEL(23 downto 1) & '0' when ADR_EN_COMBEL = '1' and ADR_COMBEL(31 downto 20) > x"00E" and ADR_COMBEL(31 downto 20) < x"010" else -- Memory map.
+             x"FF" & ADR_COMBEL(23 downto 1) & '0' when ADR_EN_COMBEL = '1' and ADR_COMBEL(31 downto 16) > x"00FE" and ADR_COMBEL(31 downto 20) < x"010" else -- Memory map.
              ADR_COMBEL(31 downto 1) & '0' when ADR_EN_COMBEL = '1' else
              x"FF" & ADR_DMA(23 downto 1) & '0' when ADR_EN_DMA = '1' and ADR_DMA(31 downto 16) > x"00FE" and ADR_DMA(31 downto 20) < x"010" else -- Memory map.
              x"00" & ADR_DMA(23 downto 1) & '0' when ADR_EN_DMA = '1' else (others => '1');
@@ -1000,7 +974,9 @@ begin
 
     HALTn <= '0' when HALT_68K30Ln = '0' else 'Z';
 
-    DTACKn <= '1' when FLASH_WAITSTATEn = '0' else -- After a system reset, see process FLASH_WS.
+    DTACKn <= '1' when RTCCS_DS1287 = '1' else -- Suppress, we have no DS1287.
+              '1' when VIDEL_WAITSTATE = '1' else -- Wait for Falcon pallette clock switchover.
+              '1' when SCC_RDn = '0' or SCC_WRn = '0' else -- Suppress, we have no SCC.
               '0' when DTACKn_CMBL = '0' or DTACKn_MFP = '0' or DTACKn_DMA = '0' else 'Z';
 
     UDSn <= UDSn_68K30L when BUS_EN_68K30L = '1' else
@@ -1011,8 +987,8 @@ begin
             LDSn_CMBL when BUS_EN_CMBL = '1' else
             LDSn_DMA when DATA_EN_DMA = '1' else 'Z';
 
-     -- The first condition of ASn is important for the COMBEL's bus error
-     -- logic. See process FLASH_WS.
+     -- The first condition of ASn is important for system
+     -- startup. See process FLASH_WS.
     ASn <=  '1' when FLASH_WAITSTATEn = '0' else
             ASn_68K30L when BUS_EN_68K30L = '1' else
             ASn_CMBL when BUS_EN_CMBL = '1' else 
@@ -1320,7 +1296,7 @@ begin
 
             -- Keyboard stuff:
             TOK                     => '1', -- Originally with weak pull up.
-            TID                     => '0',
+            TID                     => '0', -- Not used.
 
             -- VIDEL control signals:
             VREQ                    => VREQ,
@@ -1334,10 +1310,9 @@ begin
             BMODE                   => '0', -- We use 68030 bus timing; '1' is STE bus emulation.
 
             -- DS1287 real time clock:
-            --RTCCS                 => Not used.
+            RTCCS                   => RTCCS_DS1287,
             --RTCAS                 => Not used.
             --RTCDS                 => Not used.
-            RTC_ACK                 => '0',
 
             -- RP5C15 real time clock:
             RP5C15_CSn              => RP5C15_CSn,
@@ -1350,11 +1325,11 @@ begin
             MFPINTn                 => MFPINTn,
             EINT1                   => '0',
             EINT3                   => '0',
-            EINT5n                  => EINT5n,
+            EINT5n                  => '1',
             EINT7n                  => '1',
             --BINTn                 => -- Not used in the original hardware.
             AVECn                   => AVECn_CMBL,
-            IACKn                   => IACKn,
+            IACKn                   => MFP_IACKn,
             IPLn                    => IPLn,
 
             -- IDE interface:
@@ -1366,11 +1341,10 @@ begin
             IDE_D_EN_INn            => IDE_D_EN_INn,
             IDE_D_EN_OUTn           => IDE_D_EN_OUTn,
 
-            SCCABn                  => SCC_ABn,
             SCCRDn                  => SCC_RDn,
             SCCWRn                  => SCC_WRn,
-            SCCIACKn                => SCC_IACKn,
-            SCCWAITn                => SCC_WAITn,
+            --SCCIACKn              => ,
+            SCCWAITn                => '1',
 
             -- Joyport:
             JOY_RHn                 => JOY_RHn,
@@ -1560,6 +1534,7 @@ begin
             DATA_IN(15 downto 0)    => DATA_I,
             DATA_OUT(15 downto 0)   => DATA_OUT_VIDEL, -- Data(31 downto 16) is not used.
             --DATA_EN               => -- Not used here.
+            WAITSTATE               => VIDEL_WAITSTATE,
             VCS                     => VCS,
             VLDn                    => VLDn,
             VREQ                    => VREQ,
@@ -1656,7 +1631,7 @@ begin
             -- GPIP_EN          =>, -- Not used; all GPIPs are direction input.
 
             -- Interrupt control:
-            IACKn                   => IACKn,
+            IACKn                   => MFP_IACKn,
             IEIn                    => '0',
             -- IEOn                 =>, -- Not used.
             IRQn                    => MFPINTn,
@@ -1768,8 +1743,8 @@ begin
             TXCLK                   => CLK_0M5,
             RXCLK                   => CLK_0M5,
             RXDATA                  => MIDI_IN,
-            CTSn                    => '0',
-            DCDn                    => '0',
+            CTSn                    => UART_MIDI_CTSn,
+            DCDn                    => UART_MIDI_DCDn,
 
             IRQn                    => IRQ_MIDIn,
             TXDATA                  => MIDI_OUT,
@@ -1797,73 +1772,6 @@ begin
             SPI_EN                  => DS1392_OUT_EN,
             SPI_SCL                 => DS1392_SCL,
             SPI_CE                  => DS1392_CE
-        );
-
-    I_SCC: SCC8530_TOP
-    -- The SCC is wired as follows: 
-    -- This core use the Falcon wiring.
-    --          TT machine          Falcon
-    -- TRxCA    LCLK                SCC connector Pin 7
-    -- RTxCA    3.672MHz            3.672MHz
-    -- TRxCB    BCLK (2.4576MHz)    BCLKA (2.4576MHz)
-    -- RTxCB    TCLK                3.672MHz
-        port map(
-            -- System controls:
-            PCLK                    => CLK_16M0,
---PCLK                    => '0',
-    
-            -- Bus:
-            DATA_IN                 => DATA_I(7 downto 0),
-            DATA_OUT                => DATA_OUT_SCC,
-            DATA_EN                 => DATA_EN_SCC,
-    
-            -- Bus controls:
-            CEn                     => '0',
-            RDn                     => SCC_RDn,
-            WRn                     => SCC_WRn,
-            A_Bn                    => SCC_ABn,
-            D_Cn                    => ADR_I(1),
-    
-            -- Interrupt:
-            INTACKn                 => SCC_IACKn,
-            IEI                     => '1',
-            --IEO                   => , -- Not used.
-            INTn                    => EINT5n,
-    
-            -- Serial Data:
-            RxDA                    => '1', -- SCC_RDA
---            TxDA                    => SCC_TDA
-            --TxDA_EN               => -- Not used.
-            RxDB                    => SCC_RxDB,
-            TxDB                    => SCC_TxDB,
-    
-            -- Channel clocks:
-TRxCA_INn               => '1', --SCC_TRXCA,
-            --TRxCA_OUTn            => , -- Not used.
-            --TRxCA_EN              => , -- Not used.
-            RTxCAn                  => CLK_3M672,
-            TRxCB_INn               => CLK_2M457600,
-            --TRxCB_OUTn            => , -- Not used.
-            --TRxCB_EN              => , -- Not used.
-            RTxCBn                  => CLK_3M672,
-    
-            -- Channel controls:
-SYNCA_IN                => '1', --SCC_SYNCA,
-            --SYNCA_OUT             => , -- Not used.
-            --SYNCA_EN              => , -- Not used.
-            Wn_REQAn                => SCC_WAITn,
---DTRn_REQAn              => SCC_DTRA,
---RTSAn                   => SCC_RTSA,
-CTSAn                   => '1', --SCC_CTSA,
-DCDAn                   => '1', --SCC_CDA,
-SYNCB_IN                => '1', -- SCC_DSRB
-            --SYNCB_OUT             => , -- Not used.
-            --SYNCB_EN              => , -- Not used.
-            --Wn_REQBn              => , -- Not used.
---DTRn_REQBn              => SCC_DTRB,
---RTSBn                   => SCC_RTSB,
-CTSBn                   => '1', -- SCC_CTSB
-DCDBn                   => '1' -- SCC_CDB
         );
 
     I_5380: WF5380_TOP_SOC

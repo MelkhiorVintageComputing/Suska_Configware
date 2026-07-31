@@ -79,17 +79,16 @@ begin
 		wait until CLK = '1' and CLK' event;
 		if RESETn = '0' then
 			WATCHDOG := (others =>'1'); -- Load the counter.
-			BERRn <= '1';
 		-- After DTACKn is released by the target, the bus master deasserts
 		-- ASn and herewith reloads the watchdog.
 		elsif ASn = '1' then
 			WATCHDOG := (others =>'1'); -- Load the counter.
 		elsif WATCHDOG > "000000" then
-			WATCHDOG := WATCHDOG - 1;
+			WATCHDOG := WATCHDOG - '1';
 		end if;
 
 		-- Error released if there is no response from a target after
-		-- 64 clock cycles.
+		-- 128 clock cycles.
 		if WATCHDOG = "000000" then
 			BERRn <= '0'; -- No answer after 64 clock periods after request. 
 		else
@@ -97,3 +96,4 @@ begin
 		end if;
 	end process P1;
 end BEHAVIOR;
+

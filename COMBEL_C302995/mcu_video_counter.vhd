@@ -38,6 +38,8 @@
 --   Introduced multisync compatibility modes (s. VIDEO_CNT).
 -- Revision 2K21A 20211224 WF
 --   This is a complete code lifting with several changes and bug fixes.
+-- Revision 2K25A 20250620 WF
+--   For better video quality we suppress interlaced mode for TFT / VGA monitors.
 --
 
 library ieee;
@@ -161,14 +163,14 @@ begin
         elsif LINE_WIDTH_RS = '1' and RWn = '0' then -- x"FFFF8210 - FFFF8211".
             LINEWIDTH <= DATA_IN(9 downto 0);
         elsif R8006_SHADOW_RS = '1' and RWn = '0' then
-            MTYPE <= DATA_IN(15 downto 14); -- This is the monitor type. "10" = VGA, "01" = RGD, "00" = SM124.
+            MTYPE <= DATA_IN(15 downto 14); -- This is the monitor type. "10" = VGA, "01" = RGB, "00" = SM124.
         elsif SHMOD_ST_SHADOW_RS = '1' and RWn = '0' then -- Shadow for x"FFFF8260".
             case DATA_IN(9 downto 8) is -- Change Linewidth.
                 when "11" | "01" | "00" => LINEWIDTH <= b"00_0101_0000"; -- x"50".
                 when others => LINEWIDTH <= b"00_0010_1000"; -- x"28"
             end case;
 
-            if MTYPE = "01" and DATA_IN(9 downto 8) = "10" then -- RGB in monochrome mode.
+            if MTYPE = "01" and DATA_IN(9 downto 8) = "10" then -- RGB monitor.
                 INTERLACED_EN <= '1';
             else
                 INTERLACED_EN <= '0';
@@ -176,7 +178,11 @@ begin
         end if;
         --
         if VMODE_SHADOW_RS = '1' and RWn = '0' then -- x"FFFF82C2 - FFFF82C3".
-            INTERLACED_EN <= DATA_IN(1);
+            if MTYPE = "10" then -- Do not enable interlaced mode when we use a VGA (TFT) monitor.
+                INTERLACED_EN <= '0';
+            else
+                INTERLACED_EN <= DATA_IN(1);
+            end if;
             DOUBLELINE_EN <= DATA_IN(0);
         end if;
         --

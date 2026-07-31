@@ -139,11 +139,9 @@ type IPIPE_TYPE is
         B       : std_logic_vector(15 downto 0);
     end record;
 
-signal REQ                  : bit;
 signal EW_REQ               : bit;
 
 signal IPIPE                : IPIPE_TYPE;
-signal FIFO_RD              : bit;
 signal IPIPE_B_FAULT        : std_logic;
 signal IPIPE_C_FAULT        : std_logic;
 signal IPIPE_D_FAULT        : std_logic;

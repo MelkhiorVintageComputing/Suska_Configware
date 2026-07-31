@@ -461,9 +461,9 @@ begin
 
     -- The function code:
     FC_OUT_EN <=  '1' when FC_EN_I = '1' else '0';
-    FC_OUT <=  FC_OUT_I;
-    FC_OUT_I <=  FC_OUT_CTRL when FC_EN_CTRL = '1'   else
-                 FC_OUT_IRQ  when FC_EN_IRQ = '1'    else (others => '0');
+    FC_OUT <= FC_OUT_I;
+    FC_OUT_I <= FC_OUT_CTRL when FC_EN_CTRL = '1'   else
+                FC_OUT_IRQ  when FC_EN_IRQ = '1'    else (others => '0');
 
     SYS_INIT_I <= '1' when SEL_BUF_A_HI_IRQ_I = '1' or SEL_BUF_A_LO_IRQ_I = '1' else '0';
 

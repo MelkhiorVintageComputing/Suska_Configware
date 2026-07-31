@@ -162,7 +162,6 @@ port (  CLK                 : in std_logic;
 end component;
 
 signal DTACK_In             : std_logic;
-signal BGACK_OUT_In         : std_logic;
 signal SU                   : boolean;
 signal ADR_SEL_I            : std_logic;
 signal SWAPSRC_I            : std_logic;

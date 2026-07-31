@@ -430,7 +430,7 @@ begin
             ASn                 => AS_In,
             RWn                 => RWn_IN,
 
-            DATA_IN             => DATA_IN,
+            DATA_IN             => DATA_IN(9 downto 0),
             DATA_OUT            => DATA_OUT_ACSI_REG,
             DATA_EN             => DATA_EN_ACSI_REG,
             DTACKn              => DTACK_ACSI_REGn,

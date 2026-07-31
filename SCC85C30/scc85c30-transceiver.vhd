@@ -31,6 +31,8 @@
 --   Draft model.
 -- Revision 2K22A 20221224 WF
 --   Initial Release.
+-- Revision 2K25A 20250620 WF
+--   Several Bug fixes and code optimizations.
 --
 
 library ieee;
@@ -132,9 +134,7 @@ entity TRANSCEIVER is
         TC                  : in std_logic_vector(15 downto 0);
         INTACKn_INH         : in std_logic;
         MIE                 : in std_logic;
-        DLC                 : in std_logic;
         INT_ACK             : in std_logic;
-        IEI                 : in std_logic;
         INT                 : out std_logic;
         STATUS              : out std_logic_vector(1 downto 0);
         RESET               : in std_logic;
@@ -166,7 +166,7 @@ type CLK_MULTIPLIER is(CLK_64, CLK_32, CLK_16, CLK_1);
 type OPMODES is(ASYNC, MSYNC, BSYNC, SDLC);
 type FIFOTYPE is array(1 to 3) of std_logic_vector(15 downto 0);
 type FRAME_FIFO_TYPE is array(0 to 9) of std_logic_vector(18 downto 0);
-type Rx_STATES is(IDLE, Rx_HUNT, Rx_CLKSYNC, PIPE_3B, Rx_LOOP_INIT, Rx_SHIFTIN, Rx_SHIFTIN_3B, Rx_CHECK_FRAME);
+type Rx_STATES is(IDLE, Rx_HUNT, Rx_START, Rx_LOOP_INIT, Rx_SHIFTIN, Rx_SHIFTIN_3B, Rx_CHECK_FRAME);
 type Tx_STATES is(IDLE, Tx_START, Tx_MARK_IDLE, Tx_SYNC_1, Tx_SYNC_2, Tx_SHIFTOUT, Tx_STOP_1, Tx_STOP_2, Tx_CRC, Tx_ABORT_FLAG, Tx_ABORT, Tx_CLOSE);
 signal Rx_STATE             : Rx_STATES;
 signal Rx_NSTATE            : Rx_STATES; -- Next state.
@@ -210,14 +210,13 @@ signal RESIDUE_BITS         : std_logic_vector(2 downto 0);
 signal RTxC_I               : std_logic;
 signal Rx_CLK               : std_logic;
 signal Rx_DPLL_OUT          : std_logic;
-signal Rx_ERROR             : std_logic_vector(7 downto 0);
 signal Rx_INH               : std_logic;
 signal Rx_LEN               : integer range 1 to 8;
 signal Rx_OVR               : std_logic;
 signal Rx_PARITY            : std_logic;
 signal Rx_SCOND             : std_logic;
 signal Rx_SHFT_RDY          : std_logic;
-signal Rx_SHIFTREG          : std_logic_vector(7 downto 0); -- Data and parity.
+signal Rx_SHIFTREG          : std_logic_vector(7 downto 0);
 signal RxD_D                : std_logic;
 signal RxD_I                : std_logic;
 signal RxD_NRZI             : std_logic;
@@ -226,6 +225,7 @@ signal Rx_STRB              : std_logic;
 signal RxD_SR_3B            : std_logic;
 signal SDLC_ADDRESS_FAIL    : std_logic;
 signal SOF                  : std_logic;
+signal STAT_ERR             : std_logic_vector(7 downto 0);
 signal SYNC_HUNT            : std_logic;
 signal SYNC_IN_I            : std_logic;
 signal Tx_PARITY            : std_logic;
@@ -311,13 +311,17 @@ begin
     -- when the clock multiplier is 16, 32 or 64. In case of a
     -- clock multiplier of 1 the strobe reflects the rising edge
     -- of the receiver clock.
+    variable RxD_I_D        : std_logic;
     variable LOCK           : boolean;
     variable Rx_PRESCALE    : std_logic_vector(5 downto 0);
     begin
         wait until CLK = '1' and CLK' event;
         Rx_STRB <= '0';
 
-        if Rx_STATE = IDLE then
+        if RESET = '1' or RES = '1' then
+            Rx_PRESCALE := "000000";
+            LOCK := false;
+        elsif RxD_I_D = '1' and RxD_I = '0' then -- Falling edge detected, sync.
             case CLK_MUL is
                 when CLK_64 => Rx_PRESCALE := "011111"; -- Half the selected period.
                 when CLK_32 => Rx_PRESCALE := "001111"; -- Half the selected period.
@@ -352,6 +356,7 @@ begin
         elsif Rx_CLK = '0' then
             LOCK := false;
         end if;
+        RxD_I_D := RxD_I;
     end process Rx_STROBE;
 
     Tx_STROBE: process
@@ -634,13 +639,15 @@ begin
         end if;
     end process STATE_REGISTERS;
 
-    Rx_STATE_DECODER: process(ABORT, CRC_CHECK_RCVD, ENTER_HUNT_MODE, EOF, EOP, EXT_SYNC, LOOP_MODE, GO_ACTIVE_ON_POLL, Rx_STATE, Rx_EN, OPMODE, RxD, RxD_D, Rx_STRB, 
+    Rx_STATE_DECODER: process(ABORT, CRC_CHECK_RCVD, ENTER_HUNT_MODE, EOF, EOP, EXT_SYNC, LOOP_MODE, GO_ACTIVE_ON_POLL, Rx_STATE, Rx_EN, OPMODE, RxD_I, Rx_STRB, 
                               Rx_SHFT_RDY, SDLC_ADDRESS_FAIL, Rx_LEN, RxD_SR_3B, SOF, SYNC_IN_I)
     begin
         case Rx_STATE is
             when IDLE =>
-                if OPMODE = ASYNC and RxD = '0' and RxD_D = '1' then -- Falling edge detected.
-                    Rx_NSTATE <= Rx_CLKSYNC;
+                if OPMODE = ASYNC and Rx_LEN < 7 and RxD_I = '0' then -- Falling edge detected.
+                    Rx_NSTATE <= Rx_START;
+                elsif OPMODE = ASYNC and RxD_SR_3B = '0' then -- Falling edge detected.
+                    Rx_NSTATE <= Rx_START;
                 elsif ENTER_HUNT_MODE = '1' then
                     Rx_NSTATE <= Rx_HUNT;
                 elsif OPMODE = SDLC and LOOP_MODE = '1' then
@@ -668,25 +675,15 @@ begin
                 else
                     Rx_NSTATE <= Rx_HUNT;
                 end if;
-            when Rx_CLKSYNC => -- Wait half a bit cell.
-                if Rx_STRB = '1' and RxD_D = '1' then
+            when Rx_START => -- Strip the start bit here.
+                if Rx_STRB = '1' and Rx_LEN < 7 and RxD_I = '1' then
                     Rx_NSTATE <= IDLE; -- Not a start bit.
-                elsif Rx_STRB = '1' and Rx_LEN > 6 then
-                    Rx_NSTATE <= PIPE_3B;
+                elsif Rx_STRB = '1' and RxD_SR_3B = '1' then
+                    Rx_NSTATE <= IDLE; -- Not a start bit.
                 elsif Rx_STRB = '1' then
                     Rx_NSTATE <= Rx_SHIFTIN;
                 else
-                    Rx_NSTATE <= Rx_CLKSYNC;
-                end if;
-            -- PIPE_3B is intended for initially filling the three bit
-            -- pipe after enabling the receiver unit. Once filled, the
-            -- this state is used for detecting the start bit in case of
-            -- multi byte transfer.
-            when PIPE_3B =>
-                if Rx_STRB = '1' and RxD_SR_3B = '0' then -- Startbit detected
-                    Rx_NSTATE <= Rx_SHIFTIN;
-                else
-                    Rx_NSTATE <= PIPE_3B;
+                    Rx_NSTATE <= Rx_START;
                 end if;
             when Rx_SHIFTIN =>
                 if OPMODE = ASYNC and Rx_SHFT_RDY = '1' then
@@ -717,9 +714,7 @@ begin
                     Rx_NSTATE <= Rx_SHIFTIN_3B;
                 end if;
             when Rx_CHECK_FRAME => -- Used in asynchronous mode.
-                if Rx_STRB = '1' and Rx_LEN > 6 then
-                    Rx_NSTATE <= PIPE_3B;
-                elsif Rx_STRB = '1' then
+                if Rx_STRB = '1' then
                     Rx_NSTATE <= IDLE;
                 else
                     Rx_NSTATE <= Rx_CHECK_FRAME;
@@ -789,8 +784,6 @@ begin
                     Tx_NSTATE <= Tx_STOP_1;
                 elsif OPMODE = SDLC and SEND_ABORT = '1' then
                     Tx_NSTATE <= Tx_ABORT;
-                elsif OPMODE = SDLC and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1' and Tx_UNDERRUN_EOM = '1' then
-                    Tx_NSTATE <= Tx_CLOSE;
                 elsif OPMODE = SDLC and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1' and ABORT_FLAGn = '0' and LOOP_MODE = '0' then
                     Tx_NSTATE <= Tx_ABORT_FLAG;
                 elsif OPMODE = SDLC and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1' and Tx_CRC_EN = '0' then
@@ -798,8 +791,6 @@ begin
                 elsif OPMODE = SDLC and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1' then
                     Tx_NSTATE <= Tx_CRC;
                 elsif (OPMODE = BSYNC or OPMODE = MSYNC) and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1' and Tx_CRC_EN = '0' then
-                    Tx_NSTATE <= Tx_CLOSE;
-                elsif (OPMODE = BSYNC or OPMODE = MSYNC) and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1'  and Tx_UNDERRUN_EOM = '1' then
                     Tx_NSTATE <= Tx_CLOSE;
                 elsif (OPMODE = BSYNC or OPMODE = MSYNC) and Tx_SHFT_RDY = '1' and Tx_BUFFER_EMPTY = '1'  then
                     Tx_NSTATE <= Tx_CRC;
@@ -901,45 +892,47 @@ begin
             Rx_IP <= '0';
             Rx_CHAR_1 := false;
             STATUS <= "00";
-        elsif Rx_INT_MODE = "11" and Rx_SCOND = '1' and RR1_RD = '1' then -- Receive interrupt on special condition.
+        elsif Rx_INT_MODE = "11" and Rx_SCOND = '1' then -- Receive interrupt on special condition.
             Rx_IP <= '1';
             if IUS = '0' then
                 STATUS <= "11";
+            elsif RR8_RD = '1' then
+                Rx_IP <= '0';
             end if;
         elsif Rx_INT_MODE = "10" then  -- Receive Interrupt on all characters or special condition.
-            if FRAME_FIFO_EMPTY = '0' then
+            if FIFO_EMPTY = '0' then
                 Rx_IP <= '1';
                 if IUS = '0' and Rx_SCOND = '1' then
                     STATUS <= "11";
                 elsif IUS = '0' then
                     STATUS <= "10";
                 end if;
-            elsif FRAME_FIFO_EMPTY = '1' then
+            elsif FIFO_EMPTY = '1' then
                 Rx_IP <= '0';
             end if;
         elsif Rx_INT_MODE = "01" then -- Receive Interrupt on first character or special condition.
             if EN_INT_RxCHAR = '1' then
                 Rx_CHAR_1 := false;
             end if;
-            if Rx_SCOND = '1' and RR1_RD = '1' then
+            if Rx_SCOND = '1' then
                 Rx_IP <= '1';
                 if IUS = '0' then
                     STATUS <= "11";
                 end if;
-            elsif FRAME_FIFO_EMPTY = '0' and Rx_CHAR_1 = false then
+            elsif FIFO_EMPTY = '0' and Rx_CHAR_1 = false then
                 Rx_CHAR_1 := true;
                 Rx_IP <= '1';
                 if IUS = '0' then
                     STATUS <= "10";
                 end if;
-            elsif FRAME_FIFO_EMPTY = '1' then
+            elsif RR8_RD = '1' then
                 Rx_IP <= '0';
             end if;
         end if;
 
         if IUS = '1' then
             null; -- Store the current status.
-        elsif Tx_BUFFER_EMPTY = '1' then
+        elsif Tx_STATE /= Tx_SHIFTOUT and Tx_NSTATE = Tx_SHIFTOUT then -- Tx buffer empty.
             STATUS <= "00";
         elsif EXT_STATUS_INT = '1' then
             STATUS <= "01";
@@ -947,24 +940,19 @@ begin
 
         if (RESET or RES) = '1' or MIE = '0' then
             INT <= '0';
-        elsif INT_ACK = '1' then
+        elsif (Tx_IP = '1' or Rx_IP = '1') and INT_ACK = '1' then
             INT <= '0';
-        elsif IEI = '0' and DLC = '0' then
-            INT <= '0'; -- Daisy chain: inhibit interrupt processing.
         elsif IUS = '1' then
             null; -- Store the current status.
-        elsif Rx_IP = '1' then
+        elsif Rx_IP = '1' or Tx_IP = '1' then
             INT <= '1'; -- Receiver interrupt.
-        elsif Tx_INT_EN = '1' and Tx_BUFFER_EMPTY = '1' then
-            INT <= '1'; -- Transmit buffer empty.
         elsif EXT_INT_EN = '1' and EXT_STATUS_INT = '1' then
             INT <= '1'; -- External or status interrupt.
         end if;
-
-        if (RESET or RES) = '1' or MIE = '0' then
+        if (RESET or RES) = '1' or MIE = '0' or Tx_INT_EN = '0' then
             Tx_IP <= '0';
-        elsif Tx_INT_EN = '1' then
-            Tx_IP <= Tx_BUFFER_EMPTY;
+        elsif Tx_STATE /= Tx_SHIFTOUT and Tx_NSTATE = Tx_SHIFTOUT then -- Tx buffer empty.
+            Tx_IP <= '1';
         end if;
 
         if (RESET or RES) = '1' or MIE = '0' or EXT_INT_EN = '0' then
@@ -975,8 +963,6 @@ begin
 
         if (RESET or RES) = '1' or MIE = '0' then
             IUS <= '0'; -- Interrupt under service.
-        elsif IEI = '0' and DLC = '0' then
-            IUS <= '0'; -- No service at all.
         elsif INT_ACK = '1' then
             IUS <= '1'; -- IUS with interrupt acknowledge cycle.
         elsif (Rx_IP or Tx_IP or EXT_STAT_IP) = '1' and INTACKn_INH = '1' then
@@ -1081,7 +1067,7 @@ begin
             -- ZCOUNT_LATCH: ZCOUNT is not latched.
             EXT_STATUS_INT <= '1';
             LATCH_LOCK := true;
-        elsif EOM_IE = '1' and (OPMODE = MSYNC or OPMODE = BSYNC or OPMODE = SDLC) and Tx_BUFFER_EMPTY = '1' then
+        elsif EOM_IE = '1' and (OPMODE = MSYNC or OPMODE = BSYNC or OPMODE = SDLC) and Tx_STATE /= Tx_SHIFTOUT and Tx_NSTATE = Tx_SHIFTOUT then -- Tx buffer empty.
             EOM_LATCH := '1';
             EXT_STATUS_INT <= '1';
             LATCH_LOCK := true;
@@ -1171,13 +1157,13 @@ begin
         if CLK = '1' and CLK' event then
             if RESET = '1' or RES = '1' then
                 W_REQ_P := '0';
-            elsif DMA_REQ_MODE = "100" and WR8_WR = '1' and Tx_BUFFER_EMPTY = '0' then -- Wait on transmit mode.
+            elsif DMA_REQ_MODE = "100" and Tx_BUFFER_EMPTY = '1' then -- Wait on transmit mode.
                 W_REQ_P := '1';
-            elsif DMA_REQ_MODE = "101" and RR8_RD = '1' and FRAME_FIFO_EMPTY = '1' then -- Wait on receive mode.
+            elsif DMA_REQ_MODE = "101" and RR8_RD = '1' and FIFO_EMPTY = '1' then -- Wait on receive mode.
                 W_REQ_P := '1';
             elsif DMA_REQ_MODE = "110" and DTRn_REQ = '1' and Tx_BUFFER_EMPTY = '1' then -- DMA request on transmit mode.
                 W_REQ_P := '1';
-            elsif DMA_REQ_MODE = "111" and FRAME_FIFO_EMPTY = '0' then -- DMA request on receive mode.
+            elsif DMA_REQ_MODE = "111" and FIFO_EMPTY = '0' then -- DMA request on receive mode.
                 W_REQ_P := '1';
             else
                 W_REQ_P := '0';
@@ -1197,7 +1183,7 @@ begin
         end if;
 
         if CLK = '0' and CLK' event then
-            W_REQ_N := not W_REQ_P;
+            W_REQ_N := W_REQ_P;
             DTR_REQ_N := DTR_REQ_P;
         end if;
 
@@ -1212,7 +1198,7 @@ begin
         else
             Wn_REQn <= '1';
         end if;
-
+ 
         if (OPMODE = MSYNC or OPMODE = BSYNC or OPMODE = SDLC) and DMA_REQ_MODE = "110" and Tx_STATE /= Tx_CLOSE and Tx_NSTATE = Tx_CLOSE then
             DTRn_REQn <= '1'; -- See 3.9.3.2 of the AMD datasheet.
         elsif OPMODE = SDLC and SDLC_HDLC = '1' and DMA_REQ_MODE = "110" and FAST_DTR = '0' then
@@ -1226,13 +1212,12 @@ begin
         end if;
     end process IO_CONTROL;
 
-    BUFFER_OUT <= BREAK_ABORT &  Tx_UNDERRUN_EOM & CTS & SYNC_HUNT & DCD & Tx_BUFFER_EMPTY & ZCOUNT & not FRAME_FIFO_EMPTY when RR0_RD = '1' else
-                Rx_ERROR when OPMODE = SDLC and (FRAME_FIFO_EN = '0' or FRAME_FIFO_EMPTY = '1') and RR1_RD = '1' else -- Frame FIFO disabled or empty.
-                '1' & FRAME_FIFO_DOUT(18 downto 17) & Rx_ERROR(4) & FRAME_FIFO_DOUT(16 downto 14) & Rx_ERROR(0) when OPMODE = SDLC and RR1_RD = '1' else -- Frame FIFO enabled.
-                FRAME_FIFO_DOUT(7 downto 0) when RR6_RD = '1' else
-                FRAME_FIFO_OVERFLOW & '1' & FRAME_FIFO_DOUT(13 downto 8) when RR7_RD = '1' else
-                FIFO_REG(1)(15 downto 8) when RR8_RD = '1' else -- This is the character FIFO.
-                FIFO_REG(1)(7 downto 0) when RR1_RD = '1' else x"00"; -- This is the Rx error FIFO.
+    BUFFER_OUT <= BREAK_ABORT & Tx_UNDERRUN_EOM & CTS & SYNC_HUNT & DCD & Tx_BUFFER_EMPTY & ZCOUNT & not FIFO_EMPTY when RR0_RD = '1' else
+                  FIFO_REG(1)(7 downto 0) when (OPMODE /= SDLC or FRAME_FIFO_EN = '0' or FRAME_FIFO_EMPTY = '1') and RR1_RD = '1' else -- This is the Rx error FIFO.
+                  '1' & FRAME_FIFO_DOUT(18 downto 17) & STAT_ERR(4) & FRAME_FIFO_DOUT(16 downto 14) & STAT_ERR(0) when OPMODE = SDLC and RR1_RD = '1' else -- Frame FIFO enabled.
+                  FRAME_FIFO_DOUT(7 downto 0) when RR6_RD = '1' else
+                  FRAME_FIFO_OVERFLOW & '1' & FRAME_FIFO_DOUT(13 downto 8) when RR7_RD = '1' else
+                  FIFO_REG(1)(15 downto 8) when RR8_RD = '1' else x"00"; -- This is the Rx character FIFO.
 
     -- These are the receiver data input multiplexers.
     RxD_I <= TxD_I when LOOPBACK = '1' else RxD_D; -- This is the loopback multiplexer.
@@ -1310,9 +1295,11 @@ begin
             ABORT <= '0';
         end if;
 
-        if OPMODE = ASYNC and Rx_STATE = IDLE then
-            PIPE := "111"; -- Pipe must not contain a startbit.
-            RxD_SR_3B <= '1';
+        if OPMODE = ASYNC then
+            if Rx_STRB = '1' then
+                PIPE := RxD_SR & PIPE(2 downto 1);
+                RxD_SR_3B <= PIPE(0);
+            end if;
         elsif Rx_STATE = IDLE or Rx_STATE = Rx_HUNT then
             PIPE := "000";
             RxD_SDLC := '0';
@@ -1332,14 +1319,14 @@ begin
               6 when Rx_BITS = "10" else 5;
 
     -- Error logic;
-    -- Be aware that the ALL_SENT is a transmitter status information an not stored in the
+    -- Be aware that the ALL_SENT is a transmitter status information anyhow it is stored in the
     -- receive status fifo.
-    Rx_ERROR <= EOF & CRC_FRAME_ERR & Rx_OVR & PARITY_ERR & RESIDUE_BITS & ALL_SENT;
+    STAT_ERR <= EOF & CRC_FRAME_ERR & Rx_OVR & PARITY_ERR & RESIDUE_BITS & ALL_SENT;
 
     -- No framing error for a BREAK condition is decoded by an empty shift register and the framing condition.
     CRC_FRAME_ERR <= '1' when OPMODE = ASYNC and Rx_STATE = Rx_CHECK_FRAME and Rx_STRB = '1' and Rx_LEN = 8 and RxD_SR_3B = '0' and Rx_SHIFTREG /= x"00" else
                      '1' when OPMODE = ASYNC and Rx_STATE = Rx_CHECK_FRAME and Rx_STRB = '1' and Rx_LEN = 7 and RxD_SR_3B = '0' and Rx_SHIFTREG /= x"00" else
-                     '1' when OPMODE = ASYNC and Rx_STATE = Rx_CHECK_FRAME and Rx_STRB = '1' and RxD_SR = '0' and Rx_SHIFTREG /= x"00" else 
+                     '1' when OPMODE = ASYNC and Rx_STATE = Rx_CHECK_FRAME and Rx_STRB = '1' and Rx_LEN < 7 and RxD_SR = '0' and Rx_SHIFTREG /= x"00" else 
                      CRC_ERR when OPMODE = SDLC else '0';
 
     -- RxD_SR_3B is the received parity in 8 bit or 7 bit per character mode.
@@ -1355,7 +1342,7 @@ begin
                 '1' when FIFO_REG(1)(7) = '1' else '0'; -- EOF.
 
     Rx_FIFO: process
-    -- This is the ^16 bit wide receiver FIFO. It is flushed 
+    -- This is the 16 bit wide receiver FIFO. It is flushed 
     -- during a hardware or channel reset. This feature is 
     -- an enhancement over the original hardware.
     subtype T_01 is natural range 0 to 1;
@@ -1369,15 +1356,13 @@ begin
 
         if RESET = '1' or RES = '1' then
             FIFO_REG <= (others => (others => '0'));
-        elsif FIFO_LOCK = true then
-            null;
         else
             for i in 1 to 3 loop
                 if i > FIFO_WR_PNT then
-                    FIFO_REG(i) <= Rx_SHIFTREG & Rx_ERROR;
+                    FIFO_REG(i) <= Rx_SHIFTREG & STAT_ERR;
                 elsif FIFO_RD = '1' then
                     if i = FIFO_WR_PNT then
-                        FIFO_REG(i) <= Rx_SHIFTREG & Rx_ERROR;
+                        FIFO_REG(i) <= Rx_SHIFTREG & STAT_ERR;
                     end if;
                     if i > 1 then
                         FIFO_REG(i-1) <= FIFO_REG(i);
@@ -1386,7 +1371,7 @@ begin
             end loop;
         end if;
 
-        if RESET ='1' or RES = '1' then
+        if RESET ='1' or RES = '1' or EN_INT_RxCHAR = '1' then
             FIFO_WR_PNT <= 0;
         else
             if FIFO_WR = '1' and FIFO_LOCK = false then
@@ -1394,7 +1379,7 @@ begin
             elsif FIFO_WR = '0' then
                 WRITE := 0;
             end if;
-            if FIFO_RD = '1' and FIFO_LOCK = false then
+            if FIFO_RD = '1' then
                 READ := 1;
             elsif FIFO_RD = '0' then
                 READ := 0;
@@ -1411,7 +1396,7 @@ begin
         FIFO_RD := '0';
 
         -- This logic change the FIFO after RR8 read access.
-        if RR8_RD = '1' then
+        if RESET ='1' or RES = '1' or RR8_RD = '1' then
             RR8_LOCK := false;
         elsif RR8_RD = '0' and RR8_LOCK = false then
             FIFO_RD := '1';
@@ -1419,7 +1404,7 @@ begin
         end if;
 
         if FIFO_WR = '1' and FIFO_RD = '0' and Rx_OVR = '1' then
-            FIFO_REG(3) <= Rx_SHIFTREG & Rx_ERROR; -- Overflow condition.
+            FIFO_REG(3) <= Rx_SHIFTREG & STAT_ERR; -- Overflow condition.
         end if;
 
         if FIFO_WR_PNT = 3 then
@@ -1432,12 +1417,13 @@ begin
             FIFO_LOCK := false;
         elsif RES_ERR = '1' then
             FIFO_LOCK := false;
-        elsif Rx_INT_MODE /= "00" and FIFO_RD = '1' and FIFO_REG(2)(7 downto 0) /= x"00" then -- After FIFO_RD the error is on the top of the FIFO.
+        elsif MIE = '0' or FRAME_FIFO_EN = '1' then
+            FIFO_LOCK := false;
+        elsif (Rx_INT_MODE = "01" or Rx_INT_MODE = "11") and Rx_SCOND = '1' then -- Special condition locks the FIFO.
             FIFO_LOCK := true;
         end if;
     end process Rx_FIFO;
 
-    -- FIFO_FULL <= '1' when FIFO_WR_PNT = 3 else '0';
     FIFO_EMPTY <= '1' when FIFO_WR_PNT = 0 else '0';
 
     FIFO_WR <= '1' when OPMODE = ASYNC and Rx_STATE = Rx_CHECK_FRAME and Rx_STRB = '1' else 
@@ -1470,7 +1456,7 @@ begin
                 ENTRY_CNT := ENTRY_CNT + '1';
             end if;
 
-            if FIFO_EMPTY = '1' then
+            if FRAME_FIFO_EMPTY = '1' then
                 null; -- Do not read from an empty FIFO.
             elsif FRAME_FIFO_RD = '1' and FRAME_FIFO_TAIL = x"9" then -- Rollover.
                 FRAME_FIFO_TAIL <= x"0";
@@ -1507,7 +1493,7 @@ begin
         FRAME_FIFO_DOUT <= FRAME_FIFO(ADR_PNTR);
     end process FRAME_FIFO_RAM;
 
-    FRAME_FIFO_DIN <= Rx_ERROR(6 downto 5) & Rx_ERROR(3 downto 1) & FRAME_BYTE_COUNTER;
+    FRAME_FIFO_DIN <= STAT_ERR(6 downto 5) & STAT_ERR(3 downto 1) & FRAME_BYTE_COUNTER;
     FRAME_FIFO_ADR <= FRAME_FIFO_TAIL when FRAME_FIFO_RD = '1' else FRAME_FIFO_HEAD;
 
     FRAME_FIFO_EMPTY <= '1' when FRAME_FIFO_TAIL = FRAME_FIFO_HEAD else '0';
@@ -1540,10 +1526,10 @@ begin
                 NRZI_IN <= '0';
                 RxD_NRZI <= '0';
             elsif NRZ_FM = "00" then -- NRZ.
-                RxD_NRZI <= RxD_I;
+                RxD_NRZI <= RxD_D;
             elsif NRZ_FM = "01" then -- NRZI.
                 RxD_NRZI <= RxD_NRZI xnor NRZI_IN;
-                NRZI_IN <= RxD_I;
+                NRZI_IN <= RxD_D;
             elsif NRZ_FM = "10" then -- FM1 (biphase mark).
                 RxD_NRZI <= BMC_D;
             else -- FM0 (biphase space).
@@ -1558,9 +1544,9 @@ begin
             if RESET = '1' or RES = '1' then
                 BMC_D := '0';
             elsif NRZ_FM = "10" then -- FM1 (biphase mark).
-                BMC_D := BMC_D xnor RxD_I;
+                BMC_D := BMC_D xnor RxD_D;
             else -- FM0 (biphase space).
-                BMC_D := BMC_D xor RxD_I;
+                BMC_D := BMC_D xor RxD_D;
             end if;
         elsif Rx_CLK = '1' then
             LOCK_N := false;
@@ -1590,7 +1576,7 @@ begin
             CRC_SHIFT_16 := (others => '0');
         end if;
 
-        if Rx_STATE = IDLE or Rx_STATE = PIPE_3B then
+        if Rx_STATE = IDLE then
 			Rx_SHIFTREG <= (others => '0');
             BITCNT := x"0";
             BITCNT_R := "000";
@@ -1740,13 +1726,13 @@ begin
             end if;
         end if;
 
-        if Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = "000000000" and Rx_STRB = '1' and Rx_LEN = 8 and RxD_SR_3B = '0' then -- 8 bits per character.
+        if Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = x"00" and Rx_STRB = '1' and Rx_LEN = 8 and RxD_SR_3B = '0' then -- 8 bits per character.
             BREAK <= '1'; -- Break condition detected.
-        elsif Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = "000000000" and Rx_STRB = '1' and Rx_LEN = 7 and RxD_SR_3B = '0' then -- 7 bits per character.
+        elsif Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = x"00" and Rx_STRB = '1' and Rx_LEN = 7 and RxD_SR_3B = '0' then -- 7 bits per character.
             BREAK <= '1'; -- Break condition detected.
-        elsif Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = "000000000" and Rx_STRB = '1' and Rx_LEN = 6 and RxD_SR = '0' then -- 6 bits per character.
+        elsif Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = x"00" and Rx_STRB = '1' and Rx_LEN = 6 and RxD_SR = '0' then -- 6 bits per character.
             BREAK <= '1'; -- Break condition detected.
-        elsif Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = "000000000" and Rx_STRB = '1' and Rx_LEN = 5 and RxD_SR = '0' then -- 5 bits per character.
+        elsif Rx_STATE = Rx_CHECK_FRAME and OPMODE = ASYNC and Rx_SHIFTREG = x"00" and Rx_STRB = '1' and Rx_LEN = 5 and RxD_SR = '0' then -- 5 bits per character.
             BREAK <= '1'; -- Break condition detected.
         elsif OPMODE = ASYNC and Rx_STRB = '1' and Rx_LEN = 8 and RxD_SR_3B = '1' then -- 8 bits per character.
             BREAK <= '0'; -- Break condition detected.
@@ -1808,11 +1794,9 @@ begin
     variable LOCK       : boolean;
     begin
         wait until CLK = '1' and CLK' event;
-        if (RESET or RES) = '1' then
+        if Tx_EN = '0' then -- Tx_EN is also cleared by RESET or RES.
             Tx_BUFFER_EMPTY <= '1';
-        elsif SEND_ABORT = '1' then
-            Tx_BUFFER_EMPTY <= '1';
-        elsif Tx_STATE /= Tx_SHIFTOUT and Tx_NSTATE = Tx_SHIFTOUT then
+        elsif Tx_STATE /= Tx_SHIFTOUT and Tx_NSTATE = Tx_SHIFTOUT then 
             Tx_BUFFER_EMPTY <= '1';
         elsif WR8_WR = '1' and LOCK = false then
             Tx_BUFFER <= BUFFER_IN;
@@ -1861,7 +1845,7 @@ begin
 
     -- This is the transmit shift register parallel data. Be aware that the start bits '0' is adjusted right hand side and the
     -- stop bits '1' are adjusted left hand side.
-    Tx_SR_DATAIN <= "000111" & Tx_PARITY & Tx_BUFFER & '0' when OPMODE = ASYNC and Tx_LEN = 8 and SYNC_MODE = "01" else
+    Tx_SR_DATAIN <= "000111" & Tx_PARITY & Tx_BUFFER & '0' when OPMODE = ASYNC and Tx_LEN = 8 and PAR_EN = '1' else
                     "0000111" & Tx_PARITY & Tx_BUFFER(6 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 7 and PAR_EN = '1' else
                     "00000111" & Tx_PARITY & Tx_BUFFER(5 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 6 and PAR_EN = '1' else
                     "000000111" & Tx_PARITY & Tx_BUFFER(4 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 5 and PAR_EN = '1' else
@@ -1869,7 +1853,7 @@ begin
                     "00000000111" & Tx_PARITY & Tx_BUFFER(2 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 3 and PAR_EN = '1' else
                     "000000000111" & Tx_PARITY & Tx_BUFFER(1 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 2 and PAR_EN = '1' else
                     "0000000000111" & Tx_PARITY & Tx_BUFFER(0) & '0' when OPMODE = ASYNC and Tx_LEN = 1 and PAR_EN = '1' else
-                    "0000111" & Tx_BUFFER & '0' when OPMODE = ASYNC and Tx_LEN = 8 and SYNC_MODE = "01" else
+                    "0000111" & Tx_BUFFER & '0' when OPMODE = ASYNC and Tx_LEN = 8 else
                     "00000111" & Tx_BUFFER(6 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 7 else
                     "000000111" & Tx_BUFFER(5 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 6 else
                     "0000000111" & Tx_BUFFER(4 downto 0) & '0' when OPMODE = ASYNC and Tx_LEN = 5 else
@@ -1929,8 +1913,6 @@ begin
             Tx_SHIFTREG(7 downto 0) := SYNC_SDLC_FLAG;
         elsif Tx_INH = '1' or SEND_BREAK = '1' then
             null; -- Stop shifting.
-        elsif Tx_STATE = Tx_START and Tx_STRB = '1' then
-            Tx_SHIFTREG := '0' & Tx_SHIFTREG(15 downto 1); -- Shift right.
         elsif Tx_STATE = Tx_MARK_IDLE and  Tx_STRB = '1' then
             if BITCNT = 8 then
                 Tx_SHIFTREG(7 downto 0) := x"FF"; -- Reload idle pattern.
@@ -1952,6 +1934,8 @@ begin
                 Tx_SHIFTREG := '0' & Tx_SHIFTREG(15 downto 1); -- Shift right.
             end if;
             BITCNT := (BITCNT + 1) mod 8;
+        elsif Tx_STATE = Tx_START and Tx_STRB = '1' then
+            Tx_SHIFTREG := '0' & Tx_SHIFTREG(15 downto 1); -- Shift out the start bit.
         elsif Tx_STATE = Tx_SHIFTOUT and  Tx_STRB = '1' then
             if OPMODE = SDLC and ONE_CNT_T = 5 and Tx_SHIFTREG(0) = '1' then
                 null; -- Wait and stuff a zero.
@@ -2022,12 +2006,14 @@ begin
         end if;
 
 		if Tx_STATE = IDLE then
-        elsif OPMODE = ASYNC and PAR_EN = '1' and Tx_LEN = BITCNT then -- Character plus parity bit.
+        elsif OPMODE = ASYNC and PAR_EN = '0' and Tx_LEN = BITCNT then -- Character plus parity bit.
             Tx_SHFT_RDY <= '1';
-        elsif OPMODE = ASYNC and PAR_EN = '0' and Tx_LEN + 1 = BITCNT then -- Character only.
+        elsif OPMODE = ASYNC and PAR_EN = '1' and Tx_LEN + 1 = BITCNT then -- Character only.
             Tx_SHFT_RDY <= '1';
-        elsif BITCNT = 8 then -- For BSYNC, MSYNC and SDLC.
+        elsif OPMODE /= ASYNC and BITCNT = 8 then -- For BSYNC, MSYNC and SDLC.
             Tx_SHFT_RDY <= '1';
+        else
+            Tx_SHFT_RDY <= '0';
         end if;
 
         if (RESET or RES) = '1' then
@@ -2088,13 +2074,13 @@ begin
 
     -- This is the final Transmitter multiplexer and tri state control.
     TxD <= TxD_I;
-    TxD_I <= RxD when LOOP_MODE = '1' and Rx_STATE = Rx_LOOP_INIT else
+    TxD_I <= RxD_D when LOOP_MODE = '1' and Rx_STATE = Rx_LOOP_INIT else
              '1' when OPMODE = SDLC and Tx_STATE = IDLE else
              '1' when OPMODE = SDLC and NRZ_FM = "01" and TxD_PULLED_HIGH = '1' else -- SDLC with NRZI.
              RxD_D when OPMODE = SDLC and LOOP_MODE = '1' and Rx_STATE = Rx_HUNT else
              RxD_D when AUTO_ECHO = '1' else 
              TxD_SR when OPMODE = ASYNC else Tx_NRZI;
 
-    ON_LOOP <= '1' when Rx_STATE = RX_HUNT or Rx_STATE = Rx_SHIFTIN else '0';
+    ON_LOOP <= '1' when OPMODE = SDLC and LOOP_MODE = '1'and (Rx_STATE = RX_HUNT or Rx_STATE = Rx_SHIFTIN) else '0';
     LOOP_SEND <= '1' when ON_LOOP = '1' and (Tx_STATE = Tx_SHIFTOUT or Tx_STATE = Tx_CRC or Tx_STATE = Tx_ABORT_FLAG) else '0';
 end architecture BEHAVIOUR;

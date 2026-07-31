@@ -49,7 +49,8 @@ package VIDEL_PKG is
 type VIDEO_MODES is(STE_MONO, STE_MID, STE_LOW, F_MONO, F_TRUEC, F_8BITPL, F_4BITPL);
 
 component VIDEO_CORE
-    generic(RAM_16      : boolean); -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+    generic(RAM_16      : boolean := false; -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+            HDMI        : boolean := false); -- HDMI requires a different timing.
     port(
         CLK_32M0        : in std_logic;
         CLK_25M175      : in std_logic;
@@ -61,6 +62,7 @@ component VIDEO_CORE
         DATA_IN			: in std_logic_vector(15 downto 0);
         DATA_OUT		: out std_logic_vector(15 downto 0);
         DATA_EN			: out std_logic;
+        WAITSTATE       : out std_logic;
         VDATA_IN		: in std_logic_vector(63 downto 0);
         DE              : out std_logic;
         VDATA_REQ       : out std_logic;

@@ -61,6 +61,13 @@
 --   This is a complete code lifting with several changes and bug fixes.
 -- Revision 2K24A 20240620 WF
 --   True Colour modes fixed.
+-- Revision 2K25A 20250620 WF
+--   We leave DE in the VBASE_CLK clock domain (HDMI requirement).
+--   HSYNC fix (no inversion vor VGA TFTs).
+--   During Shiftmode register access HHC and VFC are now initialized (HDMI chip synchronization).
+--   Fixed a F_PALETTE bug. It works now in the correct clock domains. This bug
+--    fix removes video flickering in some video modes.
+--   Recalibration of the DISPLAY_SWITCH improves compatibility to HDMI monitors.
 --
 
 library work;
@@ -72,7 +79,8 @@ use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
 entity VIDEO_CORE is
-    generic(RAM_16      : boolean := false); -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+    generic(RAM_16      : boolean := false; -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+            HDMI        : boolean := false); -- HDMI requires a different timing.
     port(
         CLK_32M0        : in std_logic; -- 32MHz clock input.
         CLK_25M175      : in std_logic; -- 52.175MHz clock input.
@@ -84,6 +92,7 @@ entity VIDEO_CORE is
         DATA_IN         : in std_logic_vector(15 downto 0);
         DATA_OUT        : out std_logic_vector(15 downto 0);
         DATA_EN         : out std_logic;
+        WAITSTATE       : out std_logic;
 
         VDATA_IN        : in std_logic_vector(63 downto 0);
         DE              : out std_logic;
@@ -125,6 +134,8 @@ signal F_PALETTE_LO         : F_PALETTE_TYPE;
 signal ST_PALETTE           : ST_PALETTE_TYPE;
 signal VTYPE                : VTYPES;
 signal ADR_I                : std_logic_vector(11 downto 0);
+signal CLK_FPAL             : std_logic;
+signal CLKSEL_32M0          : std_logic;
 signal SYNCMODE             : std_logic;
 signal F_PALETTE_WREN_HI    : std_logic;
 signal F_PALETTE_WREN_LO    : std_logic;
@@ -138,8 +149,8 @@ signal VIDEO_CTRL           : std_logic_vector(8 downto 0);
 signal V_MODE               : std_logic_vector(3 downto 0);
 signal HHC                  : std_logic_vector(8 downto 0); -- Horizontal Hold Counter.
 signal HHT                  : std_logic_vector(8 downto 0); -- Horizontal Hold Timer.
-signal HBB                  : std_logic_vector(8 downto 0); -- Horizontal Boarder Begin.
-signal HBE                  : std_logic_vector(8 downto 0); -- Horizontal Boarder End.
+signal HBB                  : std_logic_vector(8 downto 0); -- Horizontal BORDER Begin.
+signal HBE                  : std_logic_vector(8 downto 0); -- Horizontal BORDER End.
 signal HDB                  : std_logic_vector(9 downto 0); -- Horizontal Display begin.
 signal HDE                  : std_logic_vector(8 downto 0); -- Horizontal Display End.
 signal HSS                  : std_logic_vector(8 downto 0); -- Horizontal Sync Start.
@@ -147,8 +158,8 @@ signal HFS                  : std_logic_vector(8 downto 0); -- Horizontal Frame 
 signal HFE                  : std_logic_vector(8 downto 0); -- Horizontal EE.
 signal VFC                  : std_logic_vector(10 downto 0); -- Vertical Frequency Counter.
 signal VFT                  : std_logic_vector(10 downto 0); -- Vertical Frequency Timer.
-signal VBB                  : std_logic_vector(10 downto 0); -- Vertical Boarder Begin.
-signal VBE                  : std_logic_vector(10 downto 0); -- Vertical Boarder End.
+signal VBB                  : std_logic_vector(10 downto 0); -- Vertical BORDER Begin.
+signal VBE                  : std_logic_vector(10 downto 0); -- Vertical BORDER End.
 signal VDB                  : std_logic_vector(10 downto 0); -- Vertical Display Begin.
 signal VDE                  : std_logic_vector(10 downto 0); -- Vertical Display End.
 signal VSS                  : std_logic_vector(10 downto 0); -- Vertical Sync Start.
@@ -167,7 +178,6 @@ signal SHFT_REQ             : std_logic;
 signal VBASE_CLK            : std_logic;
 signal VIDEO_STRB           : std_logic;
 signal SHFT_STRB            : std_logic;
-signal BOARDER              : std_logic;
 signal DE_I                 : std_logic;
 signal HILOn                : std_logic; -- HILOn = '0' is the first half line.
 signal VF_50_60n            : std_logic;
@@ -191,14 +201,13 @@ begin
  
         if CLK_32M0 = '0' and CLK_32M0' event then
             VDATA_REQ_S := VDATA_REQ_I; -- This is the request synchronized to the CLK_32M0 clock domain.
-            DE <= DE_I;
             HINT <= HINT_I;
             VINT <= VINT_I;
             EVENn_ODD <= EVENn_ODD_I;
         end if;
     end process CLOCK_DOMAIN_CROSSING;
 
-    DOTCK <= VBASE_CLK;
+    DOTCK <= not VBASE_CLK;
     VBASE_CLK <= CLK_EXT when SYNCMODE = '1' else
                  CLK_32M0 when VIDEO_CTRL(2) = '0' else CLK_25M175; -- Video base clock, '0' = 32MHz - '1' = 25.175MHz.
 
@@ -209,14 +218,50 @@ begin
     F_PALETTE_ADR <= ADR(9 downto 2) when VCS = '1' else -- Bus access.
                      PALETTE_SEL when VIDEO_MODE = F_8BITPL else 
                      x"00" when VIDEO_MODE = F_MONO else -- We need F_PALETTE_LO(0)(0) for Inversion signal.
-                     SHIFTMODE_F(3 downto 0) & PALETTE_SEL(3 downto 0); -- Colour bank selection & palette selection.
+                     SHIFTMODE_F(3 downto 0) & PALETTE_SEL(3 downto 0); -- Colour bank selection & palette selection., F_PALETTE_ADR, VCS
 
-    FALCON_PALETTE: process(CLK_32M0, F_PALETTE_HI, F_PALETTE_LO)
-    -- This process is written in that manner, that 8192 bits
-    -- RAM will be inferred.
-    variable F_PALETTE_ADR_PNTR   : integer range 0 to 255;
+    F_PALETTE_CLKSEL: process(CLK_32M0, VBASE_CLK, CLKSEL_32M0)
+    -- This logic modelled in a way that the clock switchover
+    -- from one to the other clock domain is glitchfree.    
+    variable CLKEN_32M0     : std_logic;
+    variable CLKEN_VBASE    : std_logic;
+    variable CLKSEL_VBASE   : std_logic;
     begin
         if CLK_32M0 = '1' and CLK_32M0' event then
+            if (VCS = '1' and ADR_I >= x"800" and ADR_I < x"C00") and CLKSEL_VBASE = '0' then
+                CLKEN_32M0 := '1';
+            elsif VCS = '0' or CLKSEL_VBASE = '1' then
+                CLKEN_32M0 := '0';
+            end if;
+        end if;
+
+        if CLK_32M0 = '0' and CLK_32M0' event then
+            CLKSEL_32M0 <= CLKEN_32M0;
+        end if;
+            
+        if VBASE_CLK = '1' and VBASE_CLK' event then
+            if VCS = '0' and CLKEN_32M0 = '0' then
+                CLKEN_VBASE := '1';
+            elsif (VCS = '1' and ADR_I >= x"800" and ADR_I < x"C00") or CLKEN_32M0 = '1' then
+                CLKEN_VBASE := '0';
+            end if;
+        end if;
+        
+        if VBASE_CLK = '0' and VBASE_CLK' event then
+            CLKSEL_VBASE := CLKEN_VBASE;
+        end if;
+        
+        CLK_FPAL <= (CLK_32M0 and CLKSEL_32M0) or (VBASE_CLK and CLKSEL_VBASE);
+    end process F_PALETTE_CLKSEL;
+
+    FALCON_PALETTE: process(CLK_FPAL, F_PALETTE_HI, F_PALETTE_LO)
+    -- This process is written in that manner, that 8192 bits
+    -- RAM will be inferred. The RAM is written and read via the data bus in the CLK_32M0 domain.
+    -- It is read by the video logic in the VBASE_CLK domain. For this reason there is a CLK_FPAL
+    -- multiplexer.
+    variable F_PALETTE_ADR_PNTR     : integer range 0 to 255;
+    begin
+        if CLK_FPAL = '1' and CLK_FPAL' event then
             F_PALETTE_ADR_PNTR := To_Integer(unsigned(F_PALETTE_ADR));
             if F_PALETTE_WREN_HI = '1' then
                 F_PALETTE_HI(F_PALETTE_ADR_PNTR) <= DATA_IN;
@@ -226,6 +271,7 @@ begin
                 F_PALETTE_LO(F_PALETTE_ADR_PNTR) <= DATA_IN;
             end if;        
         end if;
+
         F_PALETTE_DOUT_HI <= F_PALETTE_HI(F_PALETTE_ADR_PNTR);
         F_PALETTE_DOUT_LO <= F_PALETTE_LO(F_PALETTE_ADR_PNTR);
     end process FALCON_PALETTE;
@@ -336,7 +382,7 @@ begin
             -- The following are the default settings for RGBs like
             -- the SC1224. Be aware that these values require the 
             -- LINEWIDTH register to be written first.
-            if VIDEO_CTRL(1 downto 0) = "01" then -- RGB moitor.
+            if VIDEO_CTRL(1 downto 0) = "01" then -- VGA/RGB moitor.
                 if DATA_IN(10) = '1' then -- Monochrome mode 2/80.
                     HHT <= "111111110"; -- x"1FE"
                     HBB <= "110011001"; -- x"199"
@@ -415,9 +461,11 @@ begin
         elsif VCS = '1' and ADR_I = x"2A2" and RWn = '0' then -- x"FFFF82A2 - FFFF82A3"
             VFT <= DATA_IN(10 downto 0);
         elsif VCS = '1' and ADR_I = x"2A4" and RWn = '0' then -- x"FFFF82A4 - FFFF82A5"
-            VBB <= DATA_IN(10 downto 0);
+--            VBB <= DATA_IN(10 downto 0);
+VBB <= "00000111111"; -- x"03F"
         elsif VCS = '1' and ADR_I = x"2A6" and RWn = '0' then -- x"FFFF82A6 - FFFF82A7"
-            VBE <= DATA_IN(10 downto 0);
+--            VBE <= DATA_IN(10 downto 0);
+VBB <= "01111111111"; -- x"3FF"
         elsif VCS = '1' and ADR_I = x"2A8" and RWn = '0' then -- x"FFFF82A8 - FFFF82A9"
             VDB <= DATA_IN(10 downto 0);
         elsif VCS = '1' and ADR_I = x"2AA" and RWn = '0' then -- x"FFFF82AA - FFFF82AB"
@@ -474,7 +522,14 @@ begin
                 x"000" & V_MODE when VCS = '1' and ADR_I = x"2C2" and RWn = '1' else
                 F_PALETTE_DOUT_HI when VCS = '1' and ADR_I >= x"800" and ADR_I < x"C00" and ADR_I(1) = '0' and RWn = '1' else F_PALETTE_DOUT_LO;
 
-    DATA_EN <=  '1' when VCS = '1' and RWn = '1' else '0';
+    -- Important! this Signal takes the clock switchover of the Falcon Palette RAM into account. To
+    -- guarantee a proper operation of the VIDEL disable the data acknowledge to the CPU when VCS is
+    -- enabled and DATA_EN is disabled.
+    DATA_EN <= '1' when VCS = '1' and RWn = '1' else '0';
+
+    -- The falcon palette register is a synchronous RAM. It is read and written in different clock domains.
+    -- The clock switchover takes some time. So we need this waitstate for the bus access. 
+    WAITSTATE <= '1' when VCS = '1' and ADR_I >= x"800" and ADR_I < x"C00" and CLKSEL_32M0 = '0' else '0';
 
     VTYPE_SWITCH: process
     -- This Flip Flop determines whether the video system
@@ -498,11 +553,9 @@ begin
     -- width of VDATA is 32 bit. The loading increments a load pointer. Each video data request forces
     -- 17 32bit wide long words to be loaded into this FIFO (in a burst) unaffected of the readout by
     -- video data requests of the shifter or the true colour mode. The VDATA_REQ is controlled in a way,
-    -- that an overflow of FIFO should never appear. Nevertheless, the FIFO logic permits a further
-    -- loading of video data, if it is full. This condition is indicated by the L32_PNTR value of 17.
-    -- In case of a video shifter or true colour video data request, the video data is read and written 
-    -- simultaneously depending on the selected video mode.
-    variable L32_PNTR       : integer range 0 to 17;
+    -- that an overflow of FIFO should never appear. In case of a video shifter or true colour video data
+    -- request, the video data is read and written simultaneously depending on the selected video mode.
+    variable L32_PNTR       : integer range 0 to 16;
     variable WORDSWAP       : boolean;
     begin
         wait until VBASE_CLK = '1' and VBASE_CLK' event;
@@ -561,10 +614,10 @@ begin
                     end if;
                 when F_MONO | STE_MONO | F_TRUEC => -- 1 LONG. We wrap around one word.
                     if WORDSWAP = false then                        
-                        if RAM_16 = true and VDATA_ACK_I = '1' and L32_PNTR < 17 then -- There is new video data in the pipeline.
+                        if RAM_16 = true and VDATA_ACK_I = '1' and L32_PNTR < 16 then -- There is new video data in the pipeline.
                             VIDEO_BUFFER(L32_PNTR) <= VDATA_IN(31 downto 0);
                             L32_PNTR := L32_PNTR + 1;
-                        elsif RAM_16 = false and VDATA_ACK_I = '1' and L32_PNTR < 17 then -- There is new video data in the pipeline.
+                        elsif RAM_16 = false and VDATA_ACK_I = '1' and L32_PNTR < 15 then -- There is new video data in the pipeline.
                             VIDEO_BUFFER(L32_PNTR) <= VDATA_IN(63 downto 32);
                             VIDEO_BUFFER(L32_PNTR + 1) <= VDATA_IN(31 downto 0);
                             L32_PNTR := L32_PNTR + 2;
@@ -590,7 +643,7 @@ begin
         elsif RAM_16 = true and VDATA_ACK_I = '1' and L32_PNTR < 16 then
             VIDEO_BUFFER(L32_PNTR) <= VDATA_IN(31 downto 0);
             L32_PNTR := L32_PNTR + 1;
-        elsif RAM_16 = false and VDATA_ACK_I = '1' and L32_PNTR < 16 then
+        elsif RAM_16 = false and VDATA_ACK_I = '1' and L32_PNTR < 15 then
             VIDEO_BUFFER(L32_PNTR) <= VDATA_IN(63 downto 32);
             VIDEO_BUFFER(L32_PNTR +1) <= VDATA_IN(31 downto 0);
             L32_PNTR := L32_PNTR + 2;
@@ -598,7 +651,7 @@ begin
         --
         if L32_PNTR < 5 then -- Minimum of four LONG are required for eight bitplanes.
             VDATA_REQ_I <= '1';
-        elsif L32_PNTR >= 16 then -- We load two LONG...
+        elsif L32_PNTR >= 15 then -- We load two LONG...
             VDATA_REQ_I <= '0';
         end if;
     end process VFIFO;
@@ -615,7 +668,7 @@ begin
     begin
         wait until VBASE_CLK = '1' and VBASE_CLK' event;
         SHFT_REQ <= '0'; -- This signal is a strobe.
-        if (VIDEO_STRB = '1' and VFC = VDB - '1' and HHC = HHT) or -- This is the initial shift register load after a vertical sync.
+        if (VIDEO_STRB = '1' and VFC = VDB and HHC = HHT) or -- This is the initial shift register load after a vertical sync.
            (DE_I = '1' and SHFT_STRB = '1' and PIX_CNT = 0) then -- This is normal shift register load.
             SHIFTREGS(7) := VIDEO_BUFFER(3)(15 downto 0);
             SHIFTREGS(6) := VIDEO_BUFFER(3)(31 downto 16);
@@ -669,36 +722,29 @@ begin
     -- See the Developer Support Package for the Atari Falcon030 for
     -- further information.
     MONO <= '0' when DE_I = '0' else
-            '0' when VFC = VDE or VFC = VDB else -- SM124: cut first and last line.
             SR0_MSB xor F_PALETTE_DOUT_LO(0) when VIDEO_MODE = F_MONO else
             SR0_MSB xor ST_PALETTE(0)(0) when VIDEO_MODE = STE_MONO else 
             '1' when VIDEO_MODE = F_TRUEC and SHIFTMODE_F(9) = '1' and VIDEO_BUFFER(0)(5) = '1' else '0'; -- Overlay.
 
     -- True colour is RrrrrGgggggBbbbb.
-    R <= x"00" when BOARDER = '1' else
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and DE_I = '0' else -- SC1224 has white boarders.
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and VFC = VDB else -- SC1224: cut first line.
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and VFC = VDE else -- SC1224 cut last line.
+    R <= x"FF" when VIDEO_CTRL(1 downto 0) = "01" and DE_I = '0' else -- SC1224 has white BORDERs.
+         x"00" when DE_I = '0' else
          VIDEO_BUFFER(0)(31 downto 27) & "000" when VIDEO_MODE = F_TRUEC else 
          x"FF" when (SR0_MSB xor F_PALETTE_DOUT_LO(0)) = '1' and VIDEO_MODE = F_MONO else
          x"00" when VIDEO_MODE = F_MONO else
          x"FF" when (SR0_MSB xor ST_PALETTE(0)(0)) = '1' and VIDEO_MODE = STE_MONO else 
          x"00" when VIDEO_MODE = STE_MONO else R_PALETTE;
 
-    G <= x"00" when BOARDER = '1' else
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and DE_I = '0' else -- SC1224 has white boarders.
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and VFC = VDB else -- SC1224: cut first line.
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and VFC = VDE else -- SC1224 cut last line.
+    G <= x"FF" when VIDEO_CTRL(1 downto 0) = "01" and DE_I = '0' else -- SC1224 has white BORDERs.
+         x"00" when DE_I = '0' else
          VIDEO_BUFFER(0)(26 downto 22) & "000" when VIDEO_MODE = F_TRUEC else
          x"FF" when (SR0_MSB xor F_PALETTE_DOUT_LO(0)) = '1' and VIDEO_MODE = F_MONO else
          x"00" when VIDEO_MODE = F_MONO else
          x"FF" when (SR0_MSB xor ST_PALETTE(0)(0)) = '1' and VIDEO_MODE = STE_MONO else 
          x"00" when VIDEO_MODE = STE_MONO else G_PALETTE;
 
-    B <= x"00" when BOARDER = '1' else 
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and DE_I = '0' else -- SC1224 has white boarders.
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and VFC = VDB else -- SC1224: cut first line.
-         x"FF" when VIDEO_CTRL(1 downto 0) = "01" and VFC = VDE else -- SC1224 cut last line.
+    B <= x"FF" when VIDEO_CTRL(1 downto 0) = "01" and DE_I = '0' else -- SC1224 has white BORDERs.
+         x"00" when DE_I = '0' else
          VIDEO_BUFFER(0)(20 downto 16) & "000" when VIDEO_MODE = F_TRUEC else
          x"FF" when (SR0_MSB xor F_PALETTE_DOUT_LO(0)) = '1' and VIDEO_MODE = F_MONO else
          x"00" when VIDEO_MODE = F_MONO else
@@ -706,6 +752,8 @@ begin
          x"00" when VIDEO_MODE = STE_MONO else B_PALETTE;
 
     VIDEO_STROBES: process
+    -- VIDEO_STRB defines the divider.
+    -- SHFT_STRB defines the pixel cycle length.
     variable VCNT   : std_logic_vector(3 downto 0);
     begin
         wait until VBASE_CLK = '1' and VBASE_CLK' event;
@@ -731,7 +779,7 @@ begin
                     end case;
                 when others => VIDEO_STRB <= '0'; -- Off.
             end case;
-        else -- All other video modes.
+        else -- All other monitors.
             case V_MODE(3 downto 2) is
                 when "00" =>
                     case VCNT is
@@ -743,7 +791,7 @@ begin
                         when x"0" | x"2" | x"4" | x"6" | x"8" | x"A" | x"C" | x"E" => VIDEO_STRB <= '1'; -- VBASE_CLK/2.
                         when others => VIDEO_STRB <= '0';
                     end case;
-                when "10" => VIDEO_STRB <= '1';
+                when "10" => VIDEO_STRB <= '1'; -- VBASE_CLK/1.
                 when others => VIDEO_STRB <= '0'; -- Off.
             end case;
         end if;
@@ -767,7 +815,11 @@ begin
     HORIZONTAL_TIMING: process
     begin
         wait until VBASE_CLK = '1' and VBASE_CLK' event;
-        if VIDEO_STRB = '1' and HHC < HHT then
+        if VCS = '1' and ADR_I = x"260" and RWn = '0' then -- SHIFTMODE_ST access.
+            HHC <= (others => '0');
+        elsif VCS = '1' and ADR_I = x"266" and RWn = '0' then -- SHIFTMODE_F access.
+            HHC <= (others => '0');
+        elsif VIDEO_STRB = '1' and HHC < HHT then
             HHC <= HHC + '1';
         elsif VIDEO_STRB = '1' then
             HHC <= (others => '0');
@@ -775,9 +827,14 @@ begin
     end process HORIZONTAL_TIMING;
 
     VERTICAL_TIMING: process
+    -- VFC is the half line counter.
     begin
         wait until VBASE_CLK = '1' and VBASE_CLK' event;        
-        if VIDEO_STRB = '1' and HHC = HHT and VFC < VFT then
+        if VCS = '1' and ADR_I = x"260" and RWn = '0' then -- SHIFTMODE_ST access.
+            VFC <= (others => '0');
+        elsif VCS = '1' and ADR_I = x"266" and RWn = '0' then -- SHIFTMODE_F access.
+            VFC <= (others => '0');
+        elsif VIDEO_STRB = '1' and HHC = HHT and VFC < VFT then
             VFC <= VFC + '1';
         elsif VIDEO_STRB = '1' and HHC = HHT then
             VFC <= (others => '0');
@@ -786,7 +843,7 @@ begin
     end process VERTICAL_TIMING;
 
     -- This half line indicator is derived from the vertical half lines.
-    HILOn <= not VFC(0) when VDB(0) = '1' else VFC(0);
+    HILOn <= VFC(0);
 
     COLOR_TIMING: process
     -- This logic is a simple divider by 7. If driven
@@ -806,26 +863,24 @@ begin
 
     HSYNC_EN <= not SHIFTMODE_F(6);
     HSYNC_POL <= VIDEO_CTRL(6);
-    HSYNC <= not HSYNC_I when VIDEO_CTRL(1 downto 0) = "10" else HSYNC_I;
+    HSYNC <= HSYNC_I;
     HSYNC_I <= '1' when HILOn = '1' and HHC >= HSS else
                '1' when HILOn = '0' and VIDEO_CTRL(3) = '1' and HHC <= HFE and VFC < x"000000110" else -- First five lines.
-               '1' when HILOn = '0' and VIDEO_CTRL(3) = '1' and HHC <= HFE and VFT - VFC  < x"000000110" else -- Last five lines.
+               '1' when HILOn = '0' and VIDEO_CTRL(3) = '1' and HHC <= HFE and VFT - VFC < x"000000110" else -- Last five lines.
                '1' when HILOn = '0' and VIDEO_CTRL(3) = '1' and HHC <= HFS else '0'; -- Lines in between.
 
     VSYNC_EN <= not SHIFTMODE_F(5);
     VSYNC_POL <= VIDEO_CTRL(5);
-    VSYNC <= not VSYNC_I when VIDEO_CTRL(1 downto 0) = "10" else VSYNC_I;
+    VSYNC <= VSYNC_I;
     VSYNC_I <= '1' when VFC >= VSS else '0';
 
---    VINT_I <= '1' when VFC = VFT else '0'; -- Interrupt after last display line.
-VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
+    VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
     HINT_I <= '1' when HHC > HSS and HILOn = '1' else '0';
 
-    BOARDER <= '0' when VIDEO_CTRL(1 downto 0) = "00" else -- Monochrome monitor.
-               '1' when VFC <= VBE else
-               '1' when VFC >= VBB else
-               '1' when HILOn = '0' and HHC <= HBE else
-               '1' when HILOn = '1' and HHC >= HBB else '0';
+    DE <= '0' when VFC <= VBE else
+          '0' when VFC > VBB else
+          '0' when HILOn = '0' and HHC <= HBE else
+          '0' when HILOn = '1' and HHC > HBB else '1';
 
     CSYNC <= not(HSYNC_I or VSYNC_I);
 
@@ -833,25 +888,13 @@ VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
     -- This display control logic computes the offsets for the HDB and the HDE
     -- registers. For more information refer to the excellent explanation of
     -- the DE timing in the document "THE AUTHORITATIVE GUIDE TO THE FALCON 
-    -- VIDEO HARDWARE" by BY AURA AND ANIMAL MINE. Be aware, that we need no
-    -- 'Divider' for the calculation of the HDB-Offset and the HDE-Offset
-    -- because this process works without VIDEO_STRB directly on the VBASE_CLK.
-    -- In this way the delay is measured in video cycles (one VBASE_CLK).
-    -- The delays are calculated from the different settings according to the 
-    -- selected video mode depending on 'Base Offset', 'Cycles/pixel' and 
-    -- 'No. of planes'.
-    -- The result of this some kind of complicated logic is a timing which
-    -- refers to the horizontal boarder begin (HBB) and -end (HBE) signals
-    -- used by the original TOS 4.04 and emuTos as follows:
-    -- DE_I <= '0' when VFC <= VDB or VFC >= VDE + '1' else
-    --         '1' when HHC >= HBE and HILOn = '0' and VTYPE = FALCON else
-    --         '1' when HHC <= HBB and HILOn = '1' and VTYPE = FALCON else
-    --         '1' when HHC > HBE and HILOn = '0' and VTYPE = STE else
-    --         '1' when HHC < HBB and HILOn = '1' and VTYPE = STE else '0';
-    -- Using the offsets results in a fine adjustment in a way, that the 
-    -- video switch DE is switched off right before the boarder begins. In
-    -- this way a fine adjustment can be done using a logic analyzer. Refer
-    -- HHC, HDB, VIDEO_MODE SHIFTMODE_ST, SHIFTMODE_FALCON ... to each other.
+    -- VIDEO HARDWARE" by BY AURA AND ANIMAL MINE. 
+    -- Using the offsets results in an adjustment of the video switch DE. For fine
+    -- adjustment the counter work on VBASE_CLK without control of VIDEO_STRB. In
+    -- this way the values are calculated by the formulas but without divider.
+    -- If HDB_CYCLES and HDE_CYCLES will be increased, the video output moves right.
+    -- If HDB_CYCLES and HDE_CYCLES will be decreased, the video output moves left.
+    --
     variable BASE_OFFSET    : std_logic_vector(11 downto 0);
     variable HDB_CYCLES     : std_logic_vector(11 downto 0);
     variable HDE_CYCLES     : std_logic_vector(11 downto 0);
@@ -877,39 +920,40 @@ VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
             when F_TRUEC => -- This is the Falcon true colour mode.
                 case V_MODE(3 downto 2) is
                     when "10" => -- 1 cycle per pixel.
-                        if VIDEO_CTRL(1 downto 0) = x"10" then -- VGA monitor.
-                            HDB_CYCLES := BASE_OFFSET + x"00E"; -- Adjustment required.
-                        else
+                        if VIDEO_CTRL(1 downto 0) = x"10" then -- VGA monitor, divider = 2. Adjustment required.
+                            HDB_CYCLES := BASE_OFFSET + x"00E";
+                        else -- Other monitors, divider = 1.
                             HDB_CYCLES := x"00F"; -- Adjustment required.
                         end if;
-                    when "01" => HDB_CYCLES := BASE_OFFSET + x"026"; -- 2 cycles per pixel.
-                    when "00" =>  HDB_CYCLES := BASE_OFFSET + x"03C"; -- 4 cycles per pixel, adjustment required.
+                    when "01" => HDB_CYCLES := BASE_OFFSET + x"026"; -- 2 cycles per pixel, divider = 2.
+                    when "00" =>  HDB_CYCLES := BASE_OFFSET + x"03C"; -- 4 cycles per pixel, divider = 4. -- Adjustment required.
                     when others => HDB_CYCLES := (others => '0'); -- Not valid.
                 end case;
                 HDE_CYCLES := x"000";
-            when F_8BITPL =>
+            when F_8BITPL => -- This is the Falcon 256/80 and 256/40 video resolution.
                 case V_MODE(3 downto 2) is
                     when "10" => -- 1 cycle per pixel.
-                        if VIDEO_CTRL(1 downto 0) = "10" then -- VGA monitor, Divider = 2.
+                        if VIDEO_CTRL(1 downto 0) = "10" and HDMI = true then -- HDMI monitor, Divider = 2.
                             HDB_CYCLES := BASE_OFFSET + x"020";
-                        else -- Divider = 1.
-                            HDB_CYCLES := x"021";
-                        end if;
                             HDE_CYCLES := x"012";
-                    when "01" => -- 2 cycles per pixel.
-                        if VIDEO_CTRL(1 downto 0) = "10" then -- VGA.
+                        elsif VIDEO_CTRL(1 downto 0) = "10" then -- VGA monitor, Divider = 2.
+                            HDB_CYCLES := BASE_OFFSET + x"038";
+                            HDE_CYCLES := x"02A";
+                        else -- Other monitors, divider = 1. Adjustment required.
+                            HDB_CYCLES := x"021";
+                            HDE_CYCLES := x"012";
+                        end if;
+                    when "01" => -- 2 cycles per pixel, divider = 2.
+                        if HDMI = true then
                             HDB_CYCLES := BASE_OFFSET + x"042";
-                        else
-                            HDB_CYCLES := BASE_OFFSET + x"044";
-                        end if;
                             HDE_CYCLES := x"024";
-                    when "00" => -- 4 cycles per pixel.
-                        if VIDEO_CTRL(1 downto 0) = "10" then -- VGA.
-                            HDB_CYCLES := BASE_OFFSET + x"084";
                         else
-                            HDB_CYCLES := BASE_OFFSET + x"088";
+                            HDB_CYCLES := BASE_OFFSET + x"058";
+                            HDE_CYCLES := x"03A";
                         end if;
-                            HDE_CYCLES := x"048";
+                    when "00" => -- 4 cycles per pixel, divider = 4. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"084";
+                        HDE_CYCLES := x"048";
                     when others => -- Not valid.
                         HDB_CYCLES := (others => '0');
                         HDE_CYCLES := (others => '0');
@@ -917,20 +961,25 @@ VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
             when F_4BITPL => -- This is the Falcon 16/80 and 16/40 video resolution.
                 case V_MODE(3 downto 2) is
                     when "10" => -- 1 cycle per pixel.
-                        if VIDEO_CTRL(1 downto 0) = "10" then -- VGA monitor, Divider = 2.
-                            HDB_CYCLES := BASE_OFFSET + x"02F";
-                        else -- Divider = 1.
-                            HDB_CYCLES := x"04F"; -- Adjustment required.
+                        if VIDEO_CTRL(1 downto 0) = "10" and HDMI = true then -- HDMI monitor, divider = 2.
+                            HDB_CYCLES := BASE_OFFSET + x"030";
+                            HDE_CYCLES := x"022"; -- 1 cycles per pixel.
+                        elsif VIDEO_CTRL(1 downto 0) = "10" then -- VGA monitor, divider = 2.
+                            HDB_CYCLES := BASE_OFFSET + x"048";
+                            HDE_CYCLES := x"03A"; -- 1 cycles per pixel.
+                        else -- Other monitors, divider = 1. Adjustment required.
+                            HDB_CYCLES := x"04F";
+                            HDE_CYCLES := x"021";
                         end if;
-                            HDE_CYCLES := x"021"; -- 1 cycles per pixel.
-                    when "01" => -- 2 cycles per pixel.
-                        if VIDEO_CTRL(1 downto 0) = "10" then -- VGA monitor, Divider = 2.
-                            HDB_CYCLES := BASE_OFFSET + x"061";
+                    when "01" => -- 2 cycles per pixel, divider = 2.
+                        if HDMI = true then
+                            HDB_CYCLES := BASE_OFFSET + x"062";
+                            HDE_CYCLES := x"044";
                         else
-                            HDB_CYCLES := BASE_OFFSET + x"064";
+                            HDB_CYCLES := BASE_OFFSET + x"07A";
+                            HDE_CYCLES := x"05C";
                         end if;
-                            HDE_CYCLES := x"043";
-                    when "00" => -- 4 cycles per pixel.
+                    when "00" => -- 4 cycles per pixel, divider = 4. Adjustment required.
                         HDB_CYCLES := BASE_OFFSET + x"0C8";
                         HDE_CYCLES := x"088";
                     when others => -- Not valid.
@@ -940,73 +989,96 @@ VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
             when F_MONO => -- This is used for VGA and RGB monitors.
                 case V_MODE(3 downto 2) is
                     when "10" => -- 1 cycle per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"08F";
-                        HDE_CYCLES := x"079"; -- Formula results in x"82".
-                    when "01" => -- 2 cycles per pixel.
+                        if VIDEO_CTRL(1 downto 0) = "10" and HDMI = true then -- HDMI monitor, divider = 2.
+                            HDB_CYCLES := BASE_OFFSET + x"094";
+                            HDE_CYCLES := x"07E";
+                        elsif VIDEO_CTRL(1 downto 0) = "10" then -- VGA monitor, divider = 2.
+                            HDB_CYCLES := BASE_OFFSET + x"0A8";
+                            HDE_CYCLES := x"092";
+                        else -- Other monitors, divider = 1. Adjustment required.
+                            HDB_CYCLES := BASE_OFFSET + x"093";
+                            HDE_CYCLES := x"082";
+                        end if;
+                    when "01" => -- 2 cycles per pixel, divider = 2. Adjustment required.
                         HDB_CYCLES := BASE_OFFSET + x"112";
                         HDE_CYCLES := x"0F4";
-                    when "00" =>  -- 4 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"244"; -- Adjustment required.
-                        HDE_CYCLES := x"1E8"; -- Adjustment required.
+                    when "00" =>  -- 4 cycles per pixel, divider = 4. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"244";
+                        HDE_CYCLES := x"1E8";
                     when others => -- Not valid.
                         HDB_CYCLES := (others => '0');
                         HDE_CYCLES := (others => '0');
                 end case;
-            when STE_LOW => -- Four bitplanes. Used for STE low resolution and Falcon 16/80 and 16/40 mode.
+            when STE_LOW => -- Four bitplanes.
                 case V_MODE(3 downto 2) is
-                    when "10" => -- 1 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"010"; -- Adjustment required.
-                        HDE_CYCLES := x"020"; -- Adjustment required.
-                    when "01" => -- 2 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"03F";
-                        HDE_CYCLES := x"04F";
-                    when "00" => -- 4 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"070"; -- Adjustment required.
-                        HDE_CYCLES := x"080"; -- Adjustment required.
+                    when "10" => -- 1 cycles per pixel, divider = 16. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"010";
+                        HDE_CYCLES := x"020";
+                    when "01" => -- 2 cycles per pixel, divider = 16.
+                        if HDMI = true then
+                            HDB_CYCLES := BASE_OFFSET + x"034";
+                            HDE_CYCLES := x"044";
+                        else
+                            HDB_CYCLES := BASE_OFFSET + x"52";
+                            HDE_CYCLES := x"062";
+                        end if;
+                    when "00" => -- 4 cycles per pixel, divider = 16. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"070";
+                        HDE_CYCLES := x"080";
                     when others => -- Not valid.
                         HDB_CYCLES := (others => '0');
                         HDE_CYCLES := (others => '0');
                 end case;
             when STE_MID => -- Two bitplanes. Used for STE medium resolution and Falcon 4/80 and 4/40 mode.
                 case V_MODE(3 downto 2) is
-                    when "10" => -- 1 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"03F";
-                        HDE_CYCLES := x"04F";
-                    when "01" => -- 2 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"07F";
-                        HDE_CYCLES := x"08F";
-                    when "00" => -- 4 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"07F";
-                        HDE_CYCLES := x"08F";
+                    when "10" => -- 1 cycles per pixel, divider = 16.
+                        if HDMI = true then
+                            HDB_CYCLES := BASE_OFFSET + x"038";
+                            HDE_CYCLES := x"048";
+                        else
+                            HDB_CYCLES := BASE_OFFSET + x"054";
+                            HDE_CYCLES := x"064";
+                        end if;
+                    when "01" => -- 2 cycles per pixel, divider = 16.
+                        if HDMI = true then
+                            HDB_CYCLES := BASE_OFFSET + x"078";
+                            HDE_CYCLES := x"088";
+                        else
+                            HDB_CYCLES := BASE_OFFSET + x"090";
+                            HDE_CYCLES := x"0A0";
+                        end if;
+                    when "00" => -- 4 cycles per pixel, divider = 16. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"080";
+                        HDE_CYCLES := x"090";
                     when others => -- Not valid.
                         HDB_CYCLES := (others => '0');
                         HDE_CYCLES := (others => '0');
                 end case;
             when STE_MONO => -- Used for STE mode with SM124.
                 case V_MODE(3 downto 2) is
-                    when "10" => -- 1 cycles per pixel.
-                        --HDB_CYCLES := BASE_OFFSET + x"070";
-                        HDB_CYCLES := BASE_OFFSET + x"0A0"; -- More centered.
-                        --HDE_CYCLES := x"080";
-                        HDE_CYCLES := x"0B0"; -- More centered.
-                    when "01" => -- 2 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"0F0"; -- Adjustment required.
-                        HDE_CYCLES := x"100"; -- Adjustment required.
-                    when "00" => -- 4 cycles per pixel.
-                        HDB_CYCLES := BASE_OFFSET + x"1F0"; -- Adjustment required.
-                        HDE_CYCLES := x"200"; -- Adjustment required.
+                    when "10" => -- 1 cycles per pixel, divider = 16.
+                        HDB_CYCLES := BASE_OFFSET + x"088";
+                        HDE_CYCLES := x"098";
+                    when "01" => -- 2 cycles per pixel, divider = 16. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"110";
+                        HDE_CYCLES := x"130"; -- Adjustment required.
+                    when "00" => -- 4 cycles per pixel, divider = 16. Adjustment required.
+                        HDB_CYCLES := BASE_OFFSET + x"220";
+                        HDE_CYCLES := x"260";
                     when others => -- Not valid.
                         HDB_CYCLES := (others => '0');
                         HDE_CYCLES := (others => '0');
                 end case;
         end case;
 
-        if VFC < VDB or VFC > VDE then
-            DE_I <= '0';
+        if VFC <= VDB or VFC > VDE then -- Vertical Sync.
+            DE_I <= '0';        
         elsif VIDEO_STRB = '1' and HDB = HDE and HHC = HDE and HILOn = '1' and HDB(9) = '1' then -- HDB and HDE in the second half line.
             HDB_OFFSET := (others => '0');
             HDE_OFFSET := (others => '0');
-        elsif VIDEO_STRB = '1' and HHC = (HDB(8 downto 0) - '1') and HILOn = HDB(9) then -- HDB in the first or second half line.
+--        elsif VIDEO_STRB = '1' and HHC = (HDB(8 downto 0)) and HILOn = HDB(9) then -- HDB in the first or second half line.
+elsif (VIDEO_STRB = '1' and HDMI = true and VIDEO_MODE = F_TRUEC and HHC = (HDB(8 downto 0) - x"4") and HILOn = HDB(9)) or
+      (VIDEO_STRB = '1' and (HDMI = false or VIDEO_MODE /= F_TRUEC) and HHC = (HDB(8 downto 0)) and HILOn = HDB(9)) then
             HDB_OFFSET := (others => '0');
             if HDE_OFFSET = HDE_CYCLES then
                 HDE_OFFSET := HDE_OFFSET + '1'; 
@@ -1014,7 +1086,9 @@ VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
             elsif HDE_OFFSET < HDE_CYCLES then
                 HDE_OFFSET := HDE_OFFSET + '1';
             end if;
-        elsif VIDEO_STRB = '1' and HHC = HDE - '1' and HILOn = '1' then -- HDE always in the second half line.
+--        elsif VIDEO_STRB = '1' and HHC = HDE and HILOn = '1' then -- HDE always in the second half line.
+elsif (VIDEO_STRB = '1' and HDMI = true and VIDEO_MODE = F_TRUEC and  HHC = HDE - x"4" and HILOn = '1') or
+      (VIDEO_STRB = '1' and (HDMI = false or VIDEO_MODE /= F_TRUEC) and HHC = HDE and HILOn = '1') then
             HDE_OFFSET := (others => '0');
             if HDB_OFFSET = HDB_CYCLES then
                 HDB_OFFSET := HDB_OFFSET + '1';
@@ -1023,41 +1097,19 @@ VINT_I <= '1' when VFC >= VSS else '0'; -- Interrupt after last display line.
                 HDB_OFFSET := HDB_OFFSET + '1';
             end if;
         else
-            if HDE_OFFSET = HDE_CYCLES then
-                HDE_OFFSET := HDE_OFFSET + '1';
-                DE_I <= '0';
-            elsif HDE_OFFSET < HDE_CYCLES then
-                HDE_OFFSET := HDE_OFFSET + '1';
-            end if;
-        
             if HDB_OFFSET = HDB_CYCLES then
                 HDB_OFFSET := HDB_OFFSET + '1';
                 DE_I <= '1';
             elsif HDB_OFFSET < HDB_CYCLES then
                 HDB_OFFSET := HDB_OFFSET + '1';
             end if;
-        end if;
 
---if VIDEO_STRB = '1' and HHC = (HDB(8 downto 0) - '1') and HILOn = HDB(9) then -- HDB in the first or second half line.
---    HDB_OFFSET := (others => '0');
---elsif VIDEO_STRB = '1' and HHC = HDE - '1' and HILOn = '1' then -- HDE always in the second half line.
---    HDE_OFFSET := (others => '0');
---end if;
---
---if VFC < VDB or VFC > VDE then
---    DE_I <= '0';
---elsif HHC >= HDB and HHC < HDE then
---    if HDB_OFFSET < HDB_CYCLES then
---        HDB_OFFSET := HDB_OFFSET + '1';
---    else
---        DE_I <= '1';
---    end if;
---elsif HHC >= HDE then
---    if HDE_OFFSET < HDE_CYCLES then
---        HDE_OFFSET := HDE_OFFSET + '1';
---    else
---        DE_I <= '0';
---    end if;        
---end if;
+            if HDE_OFFSET = HDE_CYCLES then
+                HDE_OFFSET := HDE_OFFSET + '1';
+                DE_I <= '0';
+            elsif HDE_OFFSET < HDE_CYCLES then
+                HDE_OFFSET := HDE_OFFSET + '1';
+            end if;
+        end if;
     end process DISPLAY_SWITCH;
 end architecture BEHAVIOR;

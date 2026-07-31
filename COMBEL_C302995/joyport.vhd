@@ -46,8 +46,6 @@ entity JOYPORT_PADDLES is
 		CLK             : in std_logic;
 		KHz_500	        : in std_logic;
 		RESET 			: in std_logic;
-		RWn				: in std_logic;
-		DATA_IN			: in std_logic_vector(1 downto 0);
 		DATA_OUT		: out std_logic_vector(15 downto 0);
 		DATA_EN			: out std_logic;
 
@@ -64,7 +62,7 @@ entity JOYPORT_PADDLES is
 	);
 end entity JOYPORT_PADDLES;
 
-architecture BEHAVIOR of JOYPORT_PADDLES is
+architecture BEHAVIOUR of JOYPORT_PADDLES is
 signal PAD0X_REG	: std_logic_vector(7 downto 0);
 signal PAD0Y_REG	: std_logic_vector(7 downto 0);
 signal PAD1X_REG	: std_logic_vector(7 downto 0);
@@ -136,4 +134,4 @@ begin
 				x"00" & PAD1Y_REG when PAD1Y_RS = '1' else (others => '0');
 	DATA_EN <=  '1' when PAD0X_RS = '1' or PAD0Y_RS = '1' else
 				'1' when PAD1X_RS = '1' or PAD1Y_RS = '1' else '0';
-end architecture BEHAVIOR;
+end architecture BEHAVIOUR;

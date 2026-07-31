@@ -66,6 +66,9 @@
 --   Fixed a SHADOW_TOS write issue (UMA).
 -- Revision 2K24A 20240620
 --   USB1160 has now a waitstate cycle.
+-- Revision 2K25A 20250620
+--   To provide correct SCC reset both pins SCCRDn and SCCWRn are asserted by RESET.
+--   The SCC interrupt CPU space access is now correctly acknowledged.
 --
 
 library work;
@@ -190,7 +193,6 @@ entity COMBEL_TOP is
         RTCCS                   : out std_logic; -- Real time clock chip select.
         RTCAS                   : out std_logic; -- Address strobe.
         RTCDS                   : out std_logic; -- Data strobe.
-        RTC_ACK                 : in std_logic; -- Set to '1' if not used.
 
         -- RP5C15 real time clock:
         RP5C15_CSn              : out std_logic; -- RP5C15 clock chip control.
@@ -220,10 +222,9 @@ entity COMBEL_TOP is
         IDE_D_EN_OUTn           : out std_logic; -- Out-Buffer control, Add-On over COMBEL.
 
         -- SCC chip:
-        SCCABn                  : out std_logic;
         SCCRDn                  : out std_logic;
         SCCWRn                  : out std_logic;
-        SCCIACKn                : out std_logic;
+        SCCIACKn                : buffer std_logic;
         SCCWAITn                : in std_logic;
 
         -- Joyport:
@@ -314,12 +315,12 @@ signal SHMOD_ST_SHADOW_RS_I     : std_logic;
 signal UDS_In                   : std_logic;
 signal UDSn_BLT                 : std_logic;
 signal USB1160_CS_In            : std_logic;
-signal USB1160_RDY              : std_logic;
 signal VMODE_SHADOW_RS_I        : std_logic;
 signal VIDEO_BASE_HIWORD_RS_I   : std_logic;
 signal VIDEO_BASE_LOWORD_RS_I   : std_logic;
 signal VIDEO_COUNT_HIWORD_RS_I  : std_logic;
 signal VIDEO_COUNT_LOWORD_RS_I  : std_logic;
+signal WAITSTATE                : std_logic;
 
 alias SHADOW_TOSn               : std_logic is SHADOW_CONFIG(0);  -- 0 = ShadowTOS active / 1 = FlashTOS active
 alias SHADOW_TOS_WEn            : std_logic is SHADOW_CONFIG(1);  -- 0 = ShadowTOS rw / 1 = ShadowTOS readonly
@@ -397,7 +398,7 @@ begin
     BERRn <= BERR_In;
 
     -- Register selections:
-    R8006n <= not R8006_RS; -- Flacon's configuration register.
+    R8006n <= not R8006_RS; -- Falcon's configuration register.
     FPUCS <= FPUCS_I; -- Floating point unit.
     VCS <= VCS_I; -- VIDEL video chip.
 
@@ -411,15 +412,17 @@ begin
     ROM_0n <= ROM_0_In when SHADOW_TOSn = '1' else '1';
 
     -- Soundchip:
-    SNDCS   <= '1' when SNDCS_In = '0' and ADR_IN(1) = '0' else '0';
-    SNDIR   <= '1' when RWn_I = '0' and SNDCS_In = '0' else '0';
+    SNDCS <= '1' when SNDCS_In = '0' and ADR_IN(1) = '0' else '0';
+    SNDIR <= '1' when RWn_I = '0' and SNDCS_In = '0' else '0';
 
     -- Serial communication controller:
-    SCCRDn <= '0' when SCCn = '0' and RWn_I = '1' else '1';
-    SCCWRn <= '0' when SCCn = '0' and RWn_I = '0' else '1';
+    SCCRDn <= '0' when RESET = '1' else
+              '0' when SCCn = '0' and RWn_I = '1' else '1';
+    SCCWRn <= '0' when RESET = '1' else
+              '0' when SCCn = '0' and RWn_I = '0' else '1';
 
     -- DS1287 real time clock:
-    RTCCS   <= RTCCS_I;
+    RTCCS <= RTCCS_I;
     RTCAS <= '1' when RTCCS_I = '1' and ADR_IN(1) = '0' else '0'; -- x"8961" is the address strobe.
     RTCDS <= '1' when RTCCS_I = '1' and ADR_IN(1) = '1' else '0'; -- x"8963" is the data strobe.
 
@@ -445,7 +448,7 @@ begin
                   '0' when ROM_3_In = '0' and SHADOW_CARTn = '1' else
                   '0' when ROM_2_In = '0' and SHADOW_TOSn = '1' else
                   '0' when SNDCS_In = '0'                     else
-                  '0' when RTCCS_I = '1' and RTC_ACK = '1'    else -- DS1287.
+                  '0' when RTCCS_I = '1'                      else -- DS1287.
                    -- '0' when RP5C15_CS_I = '1'              else -- Validated via VPAn.
                   '0' when SCCn = '0' and SCCWAITn = '1'      else
                   '0' when JOY_RS_I = '1'                     else
@@ -476,16 +479,19 @@ begin
                   '0' when DTACK_OUT_BLTn = '0'               else
                   '0' when SHADOW_TOS_CSn_I = '0'             else
                   '0' when LIGHTNING_CSn_I = '0'              else
-                  '0' when USB1160_RDY = '1'                  else '1';
+                  '0' when WAITSTATE = '0'                    else
+                  '0' when SCCIACKn = '0' else '1'; -- This is the SCC CPU space cycle.
 
     P_WAITSTATES: process
     -- The latency of the USB controller is in case of
     -- operating ISO and ATL transfer too long for a non
     -- delayed bus cycle. For more information refer to 
     -- the USB1160 top level header.
+    variable TMP    : std_logic;
     begin
         wait until CLK_16 = '1' and CLK_16' event;
-        USB1160_RDY <= not USB1160_CS_In;
+        WAITSTATE <= TMP;
+        TMP := USB1160_CS_In;
     end process P_WAITSTATES;
 
     SYSTEM_REGs: process(CLK_32, R8006_REG, R8007_REG)
@@ -618,7 +624,6 @@ begin
         MFPCSn                  => MFPCSn,
         SNDCSn                  => SNDCS_In,
         SCCn                    => SCCn,
-        SCCABn                  => SCCABn,
         RTCCS                   => RTCCS_I,
         RP5C15_CS               => RP5C15_CS_I,
 
@@ -675,7 +680,6 @@ begin
         SYS_RESET_OUTn          => SYS_RESET_OUTn,
         RESET                   => RESET,
 
-        ASn                     => ASn_I,
         LDSn                    => LDSn_I,
         UDSn                    => UDS_In,
         RWn                     => RWn_I,
@@ -729,7 +733,6 @@ begin
         RAS1n                   => RAM_RAS1n,
         CAS1n                   => RAM_CAS1n,
 
-        RAM_16MB                => RAM_16MB,
         BUS_WIDTH               => BUS_WIDTH,
         DQMn                    => RAM_DQMn,
         SIZE                    => SIZE_MCU,
@@ -771,8 +774,6 @@ begin
         KHz_500                 => KHz_500_I,
         RESET                   => RESET,
 
-        RWn                     => RWn_I,
-        DATA_IN                 => DATA_IN(1 downto 0),
         DATA_OUT                => DATA_OUT_JOYPORT,
         DATA_EN                 => DATA_EN_JOYPORT,
 

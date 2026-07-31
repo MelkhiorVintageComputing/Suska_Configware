@@ -251,6 +251,8 @@ begin
         elsif WAKEUP = '1' then -- Wake up by pin.
             CLK_RDY <= '1';
         end if;
+        
+        
     end process P_SYNC;
 
     SUSPEND <= '1' when HCFS_IN = "11" else '0';

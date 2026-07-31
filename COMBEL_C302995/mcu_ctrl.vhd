@@ -57,7 +57,6 @@ entity MCU_CTRL is
         RAMn                    : in std_logic;
 
         MEM_CONFIG_RS           : in std_logic; -- Memory config register control.
-        RAM_16MB                : in std_logic; -- RAM size.
 
         MCU_PHASE               : out MCU_PHASE_TYPE;
 

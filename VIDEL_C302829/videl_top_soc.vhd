@@ -56,7 +56,8 @@ library ieee;
 use ieee.std_logic_1164.all;
 
 entity VIDEL_TOP is
-    generic(RAM_16      : boolean := false); -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+    generic(RAM_16      : boolean := false; -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+            HDMI        : boolean := false); -- HDMI requires a different timing.
     port (
         -- System and core control:
         RESET    	    : in std_logic;
@@ -70,6 +71,7 @@ entity VIDEL_TOP is
         DATA_OUT	    : out std_logic_vector(31 downto 0);
         DATA_EN		    : out std_logic;
         VCS             : in std_logic; -- Videl chip select.
+        WAITSTATE       : out std_logic; -- Required for Falcon Palette clock switchover.
         VLDn            : in std_logic; -- Videl data load signal.
         VREQ            : out std_logic; -- Video data request.
         RWn		        : in std_logic;
@@ -173,7 +175,8 @@ begin
     VREQ <= VDATA_REQ;
 
     I_VIDEO_SYSTEM: VIDEO_CORE
-        generic map(RAM_16          => RAM_16)
+        generic map(RAM_16          => RAM_16,
+                    HDMI            => HDMI)
         port map(
             CLK_32M0                => CLK_32M0,
             CLK_25M175              => CLK_25M175,
@@ -185,6 +188,7 @@ begin
             DATA_IN			        => DATA_IN(31 downto 16),
             DATA_OUT		        => DATA_OUT_VCORE,
             DATA_EN			        => DATA_EN_VCORE,
+            WAITSTATE               => WAITSTATE,
             VDATA_IN			    => VIDEO_DATA_BUFFER,
             DE                      => DE_I,
             VDATA_REQ               => VDATA_REQ,

@@ -50,7 +50,7 @@ entity FDMA_ACSI_REGs is
         ASn                 : in std_logic; -- Adress strobe signal indicates valid adress.
         RWn                 : in std_logic; -- Read write control.
 
-        DATA_IN             : in std_logic_vector (15 downto 0);
+        DATA_IN             : in std_logic_vector (9 downto 0);
         DATA_OUT            : out std_logic_vector (15 downto 0);
         DATA_EN             : out std_logic;
         DTACKn              : out std_logic;

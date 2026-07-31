@@ -113,7 +113,6 @@ package COMBEL_PKG is
             MFPCSn                  : out std_logic;
             SNDCSn                  : out std_logic;
             SCCn                    : out std_logic;
-            SCCABn                  : out std_logic;
             RTCCS                   : out std_logic; -- Select signal for the DS1287 real time clock.
             RP5C15_CS               : out std_logic; -- Select signal for the RP5C15 real time clock.
             JOY_RS                  : out std_logic;
@@ -158,7 +157,6 @@ package COMBEL_PKG is
             SYS_RESET_INn           : in std_logic;
             SYS_RESET_OUTn          : out std_logic;
             RESET                   : in std_logic;
-            ASn                     : in std_logic;
             LDSn                    : in std_logic;
             UDSn                    : in std_logic;
             RWn                     : in std_logic;
@@ -203,7 +201,6 @@ package COMBEL_PKG is
             CAS0n                   : out std_logic; -- This is for 256Mb chips.
             RAS1n                   : out std_logic; -- This is for 256Mb chips.
             CAS1n                   : out std_logic; -- This is for 256Mb chips.
-            RAM_16MB                : in std_logic; -- RAM size.
             BUS_WIDTH               : in RAMWIDTH_TYPE; -- Select RAM bus width in K30 mode.
             SIZE                    : in std_logic_vector(1 downto 0); -- Data size control.
             DQMn                    : out std_logic_vector(3 downto 0); -- SD-RAM output buffer controls.
@@ -221,7 +218,6 @@ package COMBEL_PKG is
             M_ADR                   : in std_logic_vector(25 downto 1);
             RAMn                    : in std_logic;
             MEM_CONFIG_RS           : in std_logic;
-            RAM_16MB                : in std_logic; -- RAM size.
             MCU_PHASE               : out MCU_PHASE_TYPE;
             VINT                    : in std_logic;
             VREQ                    : in std_logic;
@@ -316,8 +312,6 @@ package COMBEL_PKG is
             CLK                     : in std_logic;
             KHz_500                 : in std_logic;
             RESET                   : in std_logic;
-            RWn                     : in std_logic;
-            DATA_IN                 : in std_logic_vector(1 downto 0);
             DATA_OUT                : out std_logic_vector(15 downto 0);
             DATA_EN                 : out std_logic;
             PAD0X_RS                : in std_logic;

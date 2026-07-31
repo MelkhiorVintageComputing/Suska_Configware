@@ -113,6 +113,10 @@
 -- Revision 2K24A 20240620
 --   USB1160 has now a waitstate cycle.
 --   SCC enhancements.
+-- Revision 2K25A 20250620
+--   To provide correct SCC reset both pins SCCRDn and SCCWRn are asserted by RESETn.
+--   The SCC interrupt CPU space access is now correctly acknowledged.
+--   Due to DE requirements the STE_ENHANCEMENTS now work in the CLK_2 domain.
 --
 
 library work;
@@ -257,10 +261,9 @@ entity WF25915IP_TOP_SOC is
         STE_CPROGn              : out std_logic; -- Select signal for the STE's cache processor.
 
         -- SCC chip:
-        SCCABn                  : out std_logic;
         SCCRDn                  : out std_logic;
         SCCWRn                  : out std_logic;
-        SCCIACKn                : out std_logic;
+        SCCIACKn                : buffer std_logic;
         SCCWAITn                : in std_logic;
 
         -- Further enhancements:
@@ -519,11 +522,14 @@ begin
                   '0' when LIGHTNING_CSn_I = '0'          else
                   '0' when A4299_CS_I = '1'               else -- Comment out for Suska.
                   -- RDYn indicates FDC ok:
-                  '0' when FCS_In = '0' and RDY_INn = '1' else '1';
+                  '0' when FCS_In = '0' and RDY_INn = '1' else 
+                  '0' when SCCIACKn = '0' else '1'; -- This is the SCC CPU space cycle.
 
     -- Serial communication controller:
-    SCCRDn <= '0' when SCCn = '0' and RWn_IN = '1' else '1';
-    SCCWRn <= '0' when SCCn = '0' and RWn_IN = '0' else '1';
+    SCCRDn <= '0' when RESETn = '0' else
+              '0' when SCCn = '0' and RWn_IN = '1' else '1';
+    SCCWRn <= '0' when RESETn = '0' else
+              '0' when SCCn = '0' and RWn_IN = '0' else '1';
 
     P_WAITSTATES: process
     -- The latency of the USB controller is in case of
@@ -606,7 +612,6 @@ begin
         A4299_CS        => A4299_CS_I,
         FCSn            => FCS_In,
         SCCn            => SCCn,
-        SCCABn          => SCCABn,
         CPROGn          => STE_CPROG_In,
         HD_REG_CSn      => HD_REG_CS_In,
         RTCCSn          => RTCCS_In,
@@ -700,7 +705,7 @@ begin
     I_STE_ENHANCEMENTS: WF25915IP_STE_ENH
     generic map(CLKSEL  => CLKSEL)
     port map(
-        CLK             => CLK_1,
+        CLK             => CLK_2,
         CLK_0M5         => CLK_0M5,
         RESETn          => RESETn,
 

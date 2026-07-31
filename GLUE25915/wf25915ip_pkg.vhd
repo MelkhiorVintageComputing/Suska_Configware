@@ -133,7 +133,6 @@ component WF25915IP_ADRDEC
         A4299_CS        : out std_logic;
         FCSn            : out std_logic;
         SCCn            : out std_logic;
-        SCCABn          : out std_logic;
         CPROGn          : out std_logic;
         HD_REG_CSn      : out std_logic;
         RTCCSn          : out std_logic;

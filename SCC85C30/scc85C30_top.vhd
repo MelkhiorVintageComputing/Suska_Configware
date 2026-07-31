@@ -31,6 +31,8 @@
 --   Draft model.
 -- Revision 2K22A 20221224 WF
 --   Initial Release.
+-- Revision 2K25A 20250620 WF
+--   Bug fixes and code optimizations.
 --
 
 library ieee;
@@ -104,7 +106,6 @@ component REGISTERS
 
         DATA_IN             : in std_logic_vector(7 downto 0);
         DATA_OUT            : out std_logic_vector(7 downto 0);
-        DATA_EN             : out std_logic;
         CEn                 : in std_logic;
         RDn                 : in std_logic;
         WRn                 : in std_logic;
@@ -380,9 +381,7 @@ component TRANSCEIVER
         TC                  : in std_logic_vector(15 downto 0);
         INTACKn_INH         : in std_logic;
         MIE                 : in std_logic;
-        DLC                 : in std_logic;
         INT_ACK             : in std_logic;
-        IEI                 : in std_logic;
         INT                 : out std_logic;
         STATUS              : out std_logic_vector(1 downto 0);
         RESET               : in std_logic;
@@ -412,7 +411,6 @@ signal TWO_CLK_MISS_A       : std_logic;
 signal LOOP_SEND_A          : std_logic;
 signal ON_LOOP_A            : std_logic;
 signal DATA_OUT_REG         : std_logic_vector(7 downto 0);
-signal DATA_EN_REG          : std_logic;
 signal Rx_IP_A              : std_logic;
 signal Tx_IP_A              : std_logic;
 signal EXT_STAT_IP_A        : std_logic;
@@ -547,7 +545,8 @@ signal AUTO_EN_B            : std_logic;
 signal Rx_BITS_B            : std_logic_vector(1 downto 0);
 signal TCB                  : std_logic_vector(15 downto 0);
 signal INT_VECT             : std_logic_vector(7 downto 0);
-signal INT_ACK              : std_logic;
+signal INT_ACK_A            : std_logic;
+signal INT_ACK_B            : std_logic;
 signal INTACKn_INH          : std_logic;
 signal MIE                  : std_logic;
 signal DLC                  : std_logic;
@@ -594,18 +593,31 @@ begin
     DTRn_REQAn <= not DTR_A when DTRn_REQ_A = '0' else DTRn_REQn_A;
     DTRn_REQBn <= not DTR_B when DTRn_REQ_B = '0' else DTRn_REQn_B;
     
-    IEO <= '0' when DLC = '1' else -- Disable lower chain.
+    IEO <= '0' when MIE = '0' or DLC = '1' or NV = '1' else -- Disable lower chain.
            '1' when IEI = '1' and INT_A = '0' and INT_B = '0' else '0';
 
     INTn <= not INT_A and not INT_B;
         
-    INT_ACK <= '1' when INTACKn = '0' and RDn = '0' else '0';
+    P_INTACK: process
+    variable LOCK   : boolean;
+    begin
+        wait until PCLK = '1' and PCLK' event;
+        if IEI = '1' and INTACKn = '0' and INT_A = '1' and LOCK = false then
+            INT_ACK_A <= '1';
+            LOCK := true;
+        elsif IEI = '1' and INTACKn = '0' and INT_B = '1' and LOCK = false then
+            INT_ACK_B <= '1';
+            LOCK := true;
+        elsif INTACKn = '1' then
+            LOCK := false;
+            INT_ACK_A <= '0';
+            INT_ACK_B <= '0';
+        end if;
+    end process P_INTACK;
 
-    DATA_OUT <= INT_VECT when INTACKn = '0' and RDn = '0' else 
-                DATA_OUT_REG when DATA_EN_REG = '1' else x"00";
-
-    DATA_EN <= '1' when DATA_EN_REG = '1' else
-               '1' when IEI = '1' and NV = '0' and INTACKn = '0' and RDn = '0' else '0';
+    DATA_OUT <= INT_VECT when INTACKn = '0' else DATA_OUT_REG;
+    DATA_EN <= '1' when INTACKn = '0' and NV = '0' else -- NV = '1' disables the bus.
+               '1' when CEn = '0' and RDn = '0' else '0'; 
 
     -- The frame FIFO enable logic refers to the CMOS version of the 8530.
     FRAME_FIFO_EN_CHB <= '1' when FRAME_FIFO_EN_A = '1' and FRAME_FIFO_EN_B = '0' else -- Not independantly.
@@ -619,7 +631,6 @@ begin
                                 
             DATA_IN             => DATA_IN,
             DATA_OUT            => DATA_OUT_REG,
-            DATA_EN             => DATA_EN_REG,
             CEn                 => CEn,
             RDn                 => RDn,
             WRn                 => WRn,
@@ -896,9 +907,7 @@ begin
             TC                  => TCA,
             INTACKn_INH         => INTACKn_INH,
             MIE                 => MIE,
-            DLC                 => DLC,
-            INT_ACK             => INT_ACK,
-            IEI                 => IEI,
+            INT_ACK             => INT_ACK_A,
             INT                 => INT_A,
             STATUS              => STATUS_A,
             RESET               => RESET,
@@ -1010,9 +1019,7 @@ begin
             TC                  => TCB,
             INTACKn_INH         => INTACKn_INH,
             MIE                 => MIE,
-            DLC                 => DLC,
-            INT_ACK             => INT_ACK,
-            IEI                 => IEI,
+            INT_ACK             => INT_ACK_B,
             INT                 => INT_B,
             STATUS              => STATUS_B,
             RESET               => RESET,

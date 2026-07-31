@@ -57,15 +57,15 @@
 -- Revision 2K8A  2008/07/14 WF
 --   Minor changes.
 -- Revision 2K9A  2008/06/29 WF
---   Changes concerning the SH_MOD for multisync compatibility.
---   Enhancements for the multisync compatible video modi.
+--   Changes concerning the SH_MOD for Multisync compatibility.
+--   Enhancements for the Multisync compatible video modi.
 --   Modofied the HSYNCn, VSYNCn, DEn and BLANKn comparators
 --   resulting in registered controls. This is a bugfix to
 --   make the core compatible with the original GLUE concerning
 --   software overscanning etc. Thanks to Lyndon Amsdon for the
 --   information.
 --   SYNCMODE has now synchronous reset to meet preset requirement.
---   Changed reset condition for the SHIFTMODE_REG to let multisyncs
+--   Changed reset condition for the SHIFTMODE_REG to let Mltisyncs
 --     with older TOS versions.
 -- Revision 2K15B 20151224 WF
 --   Replaced the data type bit by std_logic.
@@ -144,9 +144,9 @@ begin
                 when others => SHIFTMODE <= x"00"; -- Default is 320x200.
             end case;
         elsif MULTISYNC = "10" and SHIFTMODE_CSn = '0' and RWn = '0' and DATA_IN = x"01" then
-            SHIFTMODE <= x"21"; -- 640x200x2 in 72Hz multisync mode.
+            SHIFTMODE <= x"21"; -- 640x200x2 in 72Hz Multisync mode.
         elsif MULTISYNC = "10" and SHIFTMODE_CSn = '0' and RWn = '0' and DATA_IN = x"00" then
-            SHIFTMODE <= x"20"; -- 320x200x4 in 72Hz multisync mode.
+            SHIFTMODE <= x"20"; -- 320x200x4 in 72Hz Multisync mode.
         elsif MULTISYNC = "01" and SHIFTMODE_CSn = '0' and RWn = '0' and DATA_IN = x"01" then
             SHIFTMODE <= x"11"; -- 640x200x2 in 50/60Hz compatible mode.
         elsif MULTISYNC = "01" and SHIFTMODE_CSn = '0' and RWn = '0' and DATA_IN = x"00" then
@@ -177,17 +177,17 @@ begin
             if CLKSEL = CLK_8M and (SHIFTMODE = x"32" or SHIFTMODE = x"02") and HTEMP < "011011111" then
                 HTEMP <= HTEMP + '1'; -- 28us period, monochrome mode.
             elsif CLKSEL = CLK_8M and (SHIFTMODE = x"21" or SHIFTMODE = x"20") and HTEMP < "011011111" then
-                HTEMP <= HTEMP + '1'; -- 28us period, multisync compatible colour modi.
+                HTEMP <= HTEMP + '1'; -- 28us period, Multisync compatible colour modi.
             elsif CLKSEL = CLK_8M and (SHIFTMODE = x"11" or SHIFTMODE = x"10") and HTEMP < "011111111" then
-                HTEMP <= HTEMP + '1'; -- 32us period, multisync compatible colour modi.
+                HTEMP <= HTEMP + '1'; -- 32us period, Multisync compatible colour modi.
             elsif CLKSEL = CLK_8M and (SHIFTMODE = x"01" or SHIFTMODE = x"00") and HTEMP < "111111111" then
                 HTEMP <= HTEMP + '1'; -- 64us period.
             elsif CLKSEL = CLK_16M and TMP = '1' and (SHIFTMODE = x"32" or SHIFTMODE = x"02") and HTEMP < "011011111" then
                 HTEMP <= HTEMP + '1'; -- 28us period, monochrome mode.
             elsif CLKSEL = CLK_16M and TMP = '1' and (SHIFTMODE = x"21" or SHIFTMODE = x"20") and HTEMP < "011011111" then
-                HTEMP <= HTEMP + '1'; -- 28us period, multisync compatible colour modi.
+                HTEMP <= HTEMP + '1'; -- 28us period, Multisync compatible colour modi.
             elsif CLKSEL = CLK_16M and TMP = '1' and (SHIFTMODE = x"11" or SHIFTMODE = x"10") and HTEMP < "011111111" then
-                HTEMP <= HTEMP + '1'; -- 32us period, multisync compatible colour modi.
+                HTEMP <= HTEMP + '1'; -- 32us period, Multisync compatible colour modi.
             elsif CLKSEL = CLK_16M and TMP = '1' and (SHIFTMODE = x"01" or SHIFTMODE = x"00") and HTEMP < "111111111" then
                 HTEMP <= HTEMP + '1'; -- 64us period.
             elsif CLKSEL = CLK_16M and TMP = '1' then
@@ -207,7 +207,7 @@ begin
     begin
         if SHIFTMODE = x"32" or SHIFTMODE = x"02" then
             LINES := "111110001"; -- 71.96Hz, 497 lines.
-        elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz multisync compatible modi.
+        elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz Multisync compatible modi.
             LINES := "111110001"; -- 71.96Hz, 497 lines.
         elsif (SHIFTMODE = x"11" or SHIFTMODE = x"10") and SYNCMODE(1) = '1' then
             LINES := "100111011";  -- 50.06Hz, 315 lines.
@@ -250,13 +250,13 @@ begin
                 elsif HTEMP = "001001101" then --UMA was 80.
                     HSYNC_In <= '1'; -- 26us high.
                 end if;
-            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz Multisync compatible modi.
                 if HTEMP = "000100111" then --UMA was 64.
                     HSYNC_In <= '0'; -- 3us low.
                 elsif HTEMP = "000111111" then --UMA was 88.
                     HSYNC_In <= '1'; -- 25us high.
                 end if;
-            elsif SHIFTMODE = x"11" or SHIFTMODE = x"10" then -- 31.25 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"11" or SHIFTMODE = x"10" then -- 31.25 kHz Multisync compatible modi.
                 if HTEMP = "010000000" then
                     HSYNC_In <= '0'; -- 3us low.
                 elsif HTEMP = "010010100" then
@@ -321,19 +321,19 @@ begin
             VDE <= '0'; -- Blanking out.
         elsif CLK = '1' and CLK' event then
             -- Horizontal controls:
-            if SHIFTMODE = x"32" then -- 35.714 kHz multisync monochrome mode.
+            if SHIFTMODE = x"32" then -- 35.714 kHz Multisync monochrome mode.
                 if HTEMP = "000100010" then
                     HDE <= '0'; -- 8us low, 3.75 before and 2.25 after HSYNC.
                 elsif HTEMP = "001100010" then
                     HDE <= '1';
                 end if;
-            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz Multisync compatible modi.
                 if HTEMP = "000100010" then
                     HDE <= '0'; -- 8us low, 3.75 before and 1.25 after HSYNC.
                 elsif HTEMP = "001100010" then
                     HDE <= '1';
                 end if;
-            elsif SHIFTMODE = x"11" or SHIFTMODE = x"10" then -- 31.25 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"11" or SHIFTMODE = x"10" then -- 31.25 kHz Multisync compatible modi.
                 if HTEMP = "001010100" then
                     HDE <= '0'; -- 8us low, 4.0 before and 1.0 after HSYNC.
                 elsif HTEMP = "010110100" then
@@ -353,14 +353,13 @@ begin
                 end if;
             end if;
 
-            -- Vertical controls:
             if SHIFTMODE = x"32" or SHIFTMODE = x"02" then -- 72Hz.
                 if VTEMP = "011010001" then
                     VDE <= '0'; -- 97 lines low, 47 before and 49 after VSYNC.
                 elsif VTEMP = "100110010" then
                     VDE <= '1';
                 end if;
-            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz Multisync compatible modi.
                 if VTEMP = "011010001" then
                     VDE <= '0'; -- 97 lines low, 47 before and 49 after VSYNC.
                 elsif VTEMP = "100110010" then
@@ -394,7 +393,8 @@ begin
                 VDE <= '1';
             end if;
         end if;
-    end process DE_CTRL;
+
+  end process DE_CTRL;
 
     BLANK_CTRL: process(CLK, RESETn)
     begin
@@ -409,13 +409,13 @@ begin
                 elsif HTEMP = "001100100" then
                     HBLANKn <= '1';
                 end if;
-            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz Multisync compatible modi.
                 if HTEMP = "000110000" then
                     HBLANKn <= '0'; -- 6.5us low, 2.0 before and 1.5 after HSYNC.
                 elsif HTEMP = "001100100" then
                     HBLANKn <= '1';
                 end if;
-            elsif SHIFTMODE = x"11" or SHIFTMODE = x"10" then -- 31.25 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"11" or SHIFTMODE = x"10" then -- 31.25 kHz Multisync compatible modi.
                 if HTEMP = "001111100" then
                     HBLANKn <= '0'; -- 6.5us low, 2.0 before and 1.5 after HSYNC.
                 elsif HTEMP = "010101100" then
@@ -435,7 +435,7 @@ begin
                 elsif VTEMP = "100100101" then
                     VBLANKn <= '1';
                 end if;
-            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz multisync compatible modi.
+            elsif SHIFTMODE = x"21" or SHIFTMODE = x"20" then -- 35.714 kHz Multisync compatible modi.
                 if VTEMP = "011101000" then
                     VBLANKn <= '0'; -- 49 lines low, 12 before and 36 after VSYNC.
                 elsif VTEMP = "100100101" then

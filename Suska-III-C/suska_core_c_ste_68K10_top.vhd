@@ -390,6 +390,8 @@
 -- Revision 2K24A 20240620
 --   Implemented dual use of the LCD port to meet the requirement for a new USB extension board.
 --   SCC enhancements.
+-- Revision 2K25A 20250620
+--   The SCC is per default disabled. TOS 2.xx does not boot with enabled SCC. See 'Workaround'
 --
 --   !!! See the header for actual configuration switch settings!!!
 
@@ -403,10 +405,10 @@ use ieee.numeric_std.all;
 
 entity SUSKA_III_C_STE_68K10_TOP is
     generic(CORETYPE                : std_logic_vector(15 downto 0) := x"0010"; -- Core Type is 'Board C Suska-STE-68K10'.
-            VERSION                 : std_logic_vector(31 downto 0) := x"20230620"; -- Core version.
+            VERSION                 : std_logic_vector(31 downto 0) := x"20250620"; -- Core version.
             IDE_BYTESWAP_EN         : boolean := false; -- Select true or false. See file header for more information.
             MFP_UART_FIXED_SPEED    : boolean := false; -- Set true to use fixed Speed 38400bd
-            USB1160_LITTLE_ENDIAN   : boolean := false); 
+            USB1160_LITTLE_ENDIAN   : boolean := false);
             -- The following is tested with HDDRIVER (11.01):
             -- If you want to boot from the IDE device then select false. No Windows compatibility.
             -- If you want Windows compatibility select true. TOS does not boot from IDE.
@@ -846,7 +848,7 @@ signal DTACK_OUT_MCUn       : std_logic;
 signal DTACK_OUT_MFPn       : std_logic;
 signal DTACK_OUT_IDEn       : std_logic;
 signal E_I                  : std_logic;
-signal EINT5n               : std_logic;
+signal SCCINTn              : std_logic;
 signal EOPn_5380            : std_logic;
 signal EXT_RAMn             : std_logic;
 signal FC_OUT_68K10         : std_logic_vector(2 downto 0);
@@ -875,7 +877,6 @@ signal HDINT_INn            : std_logic;
 signal HDRQ_5380            : std_logic;
 signal HDRQ_IN              : std_logic;
 signal HSYNC_On             : std_logic;
-signal IACKn                : std_logic;
 signal IDE_BYTESWAP         : std_logic;
 signal IDE_RES_In           : std_logic;
 signal INT_4299             : std_logic;
@@ -897,6 +898,7 @@ signal MAD                  : std_logic_vector(9 downto 0);
 signal MCU_ADR              : std_logic_vector(25 downto 1);
 signal MDAT_BUFFER          : std_logic_vector(15 downto 0);
 signal MFP_CS_In            : std_logic;
+signal MFP_IACKn            : std_logic;
 signal MFP_SO               : std_logic;
 signal MFP_SO_EN            : std_logic;
 signal MFPINTn              : std_logic;
@@ -927,7 +929,6 @@ signal RP5C15_RDn           : std_logic;
 signal RWn_OUT_68K10        : std_logic;
 signal RWn_OUT_BLT          : std_logic;
 signal RWn_OUT_GLUE         : std_logic;
-signal SCC_ABn              : std_logic;
 signal SCC_RDn              : std_logic;
 signal SCC_WRn              : std_logic;
 signal SCC_IACKn            : std_logic;
@@ -1165,7 +1166,7 @@ begin
 
     P_3M672: process
     -- This process provides the 3.6720MHz clock for the SCC.
-    -- It is derived from a 25.6MHz PLL clock divided by 7 
+    -- It is derived from a 25.6MHz PLL clock divided by 7
     -- which results in a 3.6674 MHz clock.
     variable TMP_3M672: std_logic_vector(2 downto 0);
     begin
@@ -1175,7 +1176,7 @@ begin
         else
             TMP_3M672 := "000";
         end if;
-        
+
         case TMP_3M672 is
             when "011" | "010" | "001" | "000" => CLK_3M672 <= '0';
             when others => CLK_3M672 <= '1';
@@ -1293,8 +1294,8 @@ begin
                    not CONFIG(1 to 2);
 
     -- Video section:
-    HSYNC <=     HSYNC_On when SYNC_EN = '1'and MULTISYNC_I = "10" else
-	          not HSYNC_On when SynC_EN = '1' else 'Z';
+    HSYNC <= HSYNC_On when SYNC_EN = '1'and MULTISYNC_I = "10" else
+             not HSYNC_On when SynC_EN = '1' else 'Z';
     VSYNC <= not VSYNC_On when SYNC_EN = '1' else 'Z';
 
     xFF827E_D(2) <= CLK_2; -- On the Suska-III-C this signal is hardwired to the video DAC clock input.
@@ -1396,28 +1397,28 @@ begin
 
     HALTn <= '0' when HALT_68K10n = '0' else 'Z';
 
-    UDSn <=     UDS_OUT_68K10n when BUS_EN_68K10 = '1' else
-                UDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
-                UDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
+    UDSn <= UDS_OUT_68K10n when BUS_EN_68K10 = '1' else
+            UDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
+            UDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-    LDSn <=     LDS_OUT_68K10n when BUS_EN_68K10 = '1' else
-                LDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
-                LDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
+    LDSn <= LDS_OUT_68K10n when BUS_EN_68K10 = '1' else
+            LDS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
+            LDS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-     -- The first condition of ASn is important for the GLUE's bus error
-     -- logic. See process FLASH_WS.
-    ASn <=  '1' when FLASH_WAITSTATEn = '0' else
-            AS_OUT_68K10n when BUS_EN_68K10 = '1' else
-            AS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
-            AS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
+     -- The first condition of ASn is important for system
+     -- startup. See process FLASH_WS.
+    ASn <= '1' when FLASH_WAITSTATEn = '0' else
+           AS_OUT_68K10n when BUS_EN_68K10 = '1' else
+           AS_OUT_BLTn when BUSCTRL_EN_BLT = '1' else
+           AS_OUT_GLUEn when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-    RWn <=  RWn_OUT_68K10 when BUS_EN_68K10 = '1' else
-            RWn_OUT_BLT when BUSCTRL_EN_BLT = '1' else
-            RWn_OUT_GLUE when BUSCTRL_EN_GLUE = '1' else 'Z';
+    RWn <= RWn_OUT_68K10 when BUS_EN_68K10 = '1' else
+           RWn_OUT_BLT when BUSCTRL_EN_BLT = '1' else
+           RWn_OUT_GLUE when BUSCTRL_EN_GLUE = '1' else 'Z';
 
-    FC <=   FC_OUT_68K10 when BUS_EN_68K10 = '1' else
-            FC_OUT_BLT when BUSCTRL_EN_BLT = '1' else
-            FC_OUT_GLUE when BUSCTRL_EN_GLUE = '1' else "ZZZ";
+    FC <= FC_OUT_68K10 when BUS_EN_68K10 = '1' else
+          FC_OUT_BLT when BUSCTRL_EN_BLT = '1' else
+          FC_OUT_GLUE when BUSCTRL_EN_GLUE = '1' else "ZZZ";
 
     FLASH_WS: process (RESETn, CLK_1)
     -- This process provides a delay of seven clock cycles after the
@@ -1471,7 +1472,8 @@ begin
         end case;
     end process SLOW_CPU;
 
-    DTACKn <= '1' when FLASH_WAITSTATEn = '0' else -- After a system reset, see process FLASH_WS.
+               -- Workaround: TOS2.xx does not boot with SCCn enabled.
+    DTACKn <= '1' when SCC_RDn = '0' or SCC_WRn = '0' else
               '0' when DTACK_OUT_BLTn = '0' or DTACK_OUT_GLUEn = '0' else
               '0' when DTACK_OUT_MCUn = '0' or DTACK_OUT_MFPn = '0' else
               '0' when DTACK_OUT_IDEn = '0' else 'Z';
@@ -1631,10 +1633,10 @@ begin
             STE_HDINTn          => HDINT_INn,
             MFPINTn             => MFPINTn,
             STE_EINT3n          => EINT3n,
-            STE_EINT5n          => EINT5n,
+            STE_EINT5n          => SCCINTn,
             STE_EINT7n          => EINT7n,
             STE_DINTn           => DINTn,
-            IACKn               => IACKn,
+            IACKn               => MFP_IACKn,
             STE_IPL2n           => IPLn(2),
             STE_IPL1n           => IPLn(1),
             STE_IPL0n           => IPLn(0),
@@ -1700,7 +1702,6 @@ begin
             STE_PAD1Yn          => PAD1Yn,
             STE_PADRSTn         => PADRSTn,
             STE_PENn            => PENn,
-            SCCABn              => SCC_ABn,
             SCCRDn              => SCC_RDn,
             SCCWRn              => SCC_WRn,
             SCCIACKn            => SCC_IACKn,
@@ -1930,7 +1931,7 @@ begin
             -- GPIP_EN          =>, -- Not used; all GPIPs are direction input.
 
             -- Interrupt control:
-            IACKn               => IACKn,
+            IACKn               => MFP_IACKn,
             IEIn                => '0',
             -- IEOn             =>, -- Not used.
             IRQn                => MFPINTn,
@@ -2110,7 +2111,7 @@ begin
         );
 
     I_SCC: SCC8530_TOP
-    -- The SCC is wired as follows: 
+    -- The SCC is wired as follows:
     -- This core use the Falcon wiring.
     --          TT machine          Falcon
     -- TRxCA    LCLK                SCC connector Pin 7
@@ -2120,32 +2121,32 @@ begin
         port map(
             -- System controls:
             PCLK                    => CLK_1,
-    
+
             -- Bus:
             DATA_IN                 => DATA_I(7 downto 0),
             DATA_OUT                => DATA_OUT_SCC,
             DATA_EN                 => DATA_EN_SCC,
-    
+
             -- Bus controls:
             CEn                     => '0',
             RDn                     => SCC_RDn,
             WRn                     => SCC_WRn,
-            A_Bn                    => SCC_ABn,
+            A_Bn                    => not ADR_I(2),
             D_Cn                    => ADR_I(1),
-    
+
             -- Interrupt:
             INTACKn                 => SCC_IACKn,
             IEI                     => '1',
             --IEO                   => , -- Not used.
-            INTn                    => EINT5n,
-    
+            INTn                    => SCCINTn,
+
             -- Serial Data:
             RxDA                    => '1', -- SCC_RDA
 --            TxDA                    => SCC_TDA
             --TxDA_EN               => -- Not used.
             RxDB                    => SCC_RxDB,
             TxDB                    => SCC_TxDB,
-    
+
             -- Channel clocks:
 TRxCA_INn               => '1', --SCC_TRXCA,
             --TRxCA_OUTn            => , -- Not used.
@@ -2155,7 +2156,7 @@ TRxCA_INn               => '1', --SCC_TRXCA,
             --TRxCB_OUTn            => , -- Not used.
             --TRxCB_EN              => , -- Not used.
             RTxCBn                  => CLK_3M672,
-    
+
             -- Channel controls:
 SYNCA_IN                => '1', --SCC_SYNCA,
             --SYNCA_OUT             => , -- Not used.
@@ -2393,7 +2394,7 @@ DCDBn                   => '1' -- SCC_CDB
         DP4_IN                      => LDATA(1),
         DP4_OUT                     => DP4_OUT,
         DPM4_EN                     => DPM4_EN
-        --DP15K                     =>  -- Switch for four 15K pull down resistors
+        --DP15K                     =>  -- Switch for 15K pull down resistors
     );
 
     VDCLK <= 'Z' when BOOT_RESET_COREn = '0' else
@@ -2407,12 +2408,12 @@ DCDBn                   => '1' -- SCC_CDB
         end if;
     end process LCD_USB_SWITCH;
 
-    LDATA_EN <= x"F" when LCD_USBn = '1' else 
+    LDATA_EN <= x"F" when LCD_USBn = '1' else
                 x"F" when DPM2_EN = '1' and DPM4_EN = '1' else
                 x"5" when DPM2_EN = '1' else
                 x"A" when DPM4_EN = '1' else x"0";
-    
-    UDATA_EN <= x"F" when LCD_USBn = '1' else 
+
+    UDATA_EN <= x"F" when LCD_USBn = '1' else
                 x"F" when DPM1_EN = '1' and DPM3_EN = '1' else
                 x"5" when DPM1_EN = '1' else
                 x"A" when DPM3_EN = '1' else x"0";

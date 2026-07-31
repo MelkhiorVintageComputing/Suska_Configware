@@ -6,13 +6,8 @@
 ---- http://www.experiment-s.de                                     ----
 ----                                                                ----
 ---- Description:                                                   ----
----- This core provides a DS1287 to PCF85363 translation and also   ----
----- native access to the PCF85363 real time chip. The DS1287 or    ----
----- the PCF85363 access is handled via the address space as        ----
----- follows:                                                       ----
-----    The native Registers of the PCF85363 are mapped to the      ----
-----      address space x"80" to x"FF". in This case all features   ----
-----      of the PCF85363 can be used.                              ----
+---- This core provides a DS1287 to PCF85363 translation with the   ----
+---- following address mapping:                                     ----
 ----    The Registers of the DS1287 are mapped to the address space ----
 ----      x"00" to x"7F" with the following limitations:            ----
 ----      DS1287 RAM space 14 (x"0E") to 78 (x"4E") is supported.   ----
@@ -26,10 +21,6 @@
 ---- This core is written to meet the requirements of the INTEL bus ----
 ---- timing. This is with the MOT input of the original chip left   ----
 ---- unconnected or connected to GND.                               ----
-----                                                                ----
-----                                                                ----
----- Author(s):                                                     ----
----- - Wolfgang Foerster, wf@experiment-s.de; wf@inventronik.de     ----
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
@@ -62,14 +53,15 @@
 -- 
 -- Revision 2K15B  20151224 WF
 --   Initial Release.
+-- Revision 2K25A  20250612 WF
+--   Debugging: ten years later :-)
 -- 
 
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
 use ieee.std_logic_arith.Conv_Std_Logic_Vector;
-use ieee.numeric_std.To_Integer;
-use ieee.numeric_std.Unsigned;
+use ieee.numeric_std.all;
 
 entity RTC1287_85363 is
     port(
@@ -78,13 +70,12 @@ entity RTC1287_85363 is
 
         -- The bus interface:
         RTC_AD_IN           : in std_logic_vector(7 downto 0);
-        RTC_D_OUT           : buffer std_logic_vector(7 downto 0);
+        RTC_D_OUT           : out std_logic_vector(7 downto 0);
         RTC_D_EN            : out std_logic;
         RTCCS               : in std_logic;
         RTCAS               : in std_logic; -- Address strobe.
         RTCDS               : in std_logic; -- Data strobe.
         RTC_RWn             : in std_logic;
-        RTC_ACK             : out std_logic;
 
         -- The SPI signals:
         PCF85363_SDA_IN     : in std_logic;
@@ -99,19 +90,6 @@ entity RTC1287_85363 is
 end entity RTC1287_85363;
     
 architecture BEHAVIOUR of RTC1287_85363 is
-type BCD_TABLE is array(0 to 99) of std_logic_vector(7 downto 0);
-constant BINARY_TO_BCD      : BCD_TABLE := 
-         (x"00", x"01", x"01", x"03", x"04", x"05", x"06", x"07", x"08", x"09",
-          x"10", x"11", x"12", x"13", x"14", x"15", x"16", x"17", x"18", x"19",
-          x"20", x"21", x"22", x"23", x"24", x"25", x"26", x"27", x"28", x"29",
-          x"30", x"31", x"32", x"33", x"34", x"35", x"36", x"37", x"38", x"39",
-          x"40", x"41", x"42", x"43", x"44", x"45", x"46", x"47", x"48", x"49",
-          x"50", x"51", x"52", x"53", x"54", x"55", x"56", x"57", x"58", x"59",
-          x"60", x"61", x"62", x"63", x"64", x"65", x"66", x"67", x"68", x"69",
-          x"70", x"71", x"72", x"73", x"74", x"75", x"76", x"77", x"78", x"79",
-          x"80", x"81", x"82", x"83", x"84", x"85", x"86", x"87", x"88", x"89",
-          x"90", x"91", x"92", x"93", x"94", x"95", x"96", x"97", x"98", x"99");
-
 type RTC_RAMTYPE is array(0 to 78) of std_logic_vector(7 downto 0);
 signal RTC_RAM              : RTC_RAMTYPE; -- C1287.
 
@@ -124,15 +102,14 @@ type RTC_STATES is (IDLE, RTC_RD, RTC_WR);
 signal RTC_STATE            : RTC_STATES;
 signal NEXT_RTC_STATE       : RTC_STATES;
 
-signal RTC_ADR_PNTR         : integer range 0 to 127; -- C1287.
-signal RTC_85363_PNTR       : integer range 0 to 127; -- 85363.
+signal ADR_PNTR_1287        : integer range 0 to 127; -- C1287.
+signal ADR_PNTR_RTC         : integer range 0 to 127; -- 85363->C1287.
+signal ADR_PNTR_85363       : integer range 0 to 127; -- 85363.
 
-signal PENDING              : std_logic_vector(78 downto 0);
+signal PENDING              : std_logic_vector(78 downto 0); -- This is a write pending flag.
 
-signal RTC_RAM_85363_IN     : std_logic_vector(7 downto 0);
-signal RTC_RAM_AD_IN        : std_logic_vector(7 downto 0);
-signal RTC_RAM_Q            : std_logic_vector(7 downto 0);
 signal DATA_85363_OUT       : std_logic_vector(7 downto 0);
+signal RTC_RAM_IN           : std_logic_vector(7 downto 0);
 
 constant DEVICE_ADR         : std_logic_vector(6 downto 0) := "1010001"; -- This is the PCF85363 I2C address.
 signal I2C_STRB             : std_logic;
@@ -146,7 +123,6 @@ signal RD_BYTE              : std_logic;
 signal WR_BYTE              : std_logic;
 
 signal BCD_MODE             : std_logic; -- DS1287 DM flag.
-signal PCF_DIRECT           : std_logic;
 begin
     TIMEBASE: process(CLK) -- Adjusted for 16MHz.
     -- This logic provides an adequate clock for the I2C device
@@ -158,7 +134,7 @@ begin
     begin
         if CLK = '1' and CLK' event then
             if RESET = '1' or TMP = x"00" then
-                TMP := x"34";
+                TMP := x"52";
             else
                 TMP := TMP - '1';
             end if;
@@ -171,7 +147,7 @@ begin
             -- The data is aligned to be stable during the rising 
             -- or the falling edge of SCL -> SCL is shifted versus
             -- I2C_STRB.
-            if TMP > x"7" and TMP < x"24" then
+            if TMP > x"7" and TMP < x"26" then
                 SCL_OUT <= '1';
             else
                 SCL_OUT <= '0';
@@ -179,92 +155,117 @@ begin
         end if;
     end process TIMEBASE;
     
-    RTC_RAM_AD_IN <= BINARY_TO_BCD(RTC_ADR_PNTR) when BCD_MODE = '0' and (RTC_ADR_PNTR < 10 or RTC_ADR_PNTR = 50) else RTC_AD_IN;
-    RTC_RAM_85363_IN <= (DATA_85363_OUT(7 downto 4) * "1010") + DATA_85363_OUT(3 downto 0) when BCD_MODE = '0' and (RTC_ADR_PNTR < 10 or RTC_ADR_PNTR = 50) else DATA_85363_OUT;
+    BINARY_2_BCD: process(ADR_PNTR_RTC, BCD_MODE, RTC_AD_IN)
+        -- This code is taken from https://piembsystech.com/binary-to-bcd-conversion-in-vhdl-programming-language/
+        -- It is modified in a way that we have only two BCD digits (0...99). The conversion is necessary when we
+        -- have the binary DS1287 mode and when data is time or date.
+        variable BINARY : unsigned(7 downto 0);
+        variable BCD    : unsigned(7 downto 0);
+        variable i      : integer;
+    begin
+        BINARY := unsigned(RTC_AD_IN);
+        BCD := (others => '0');
+        
+        -- Double Dabble algorithm
+        for i in 0 to 7 loop
+            if BCD(7 downto 4) > "0100" then
+                BCD(7 downto 4) := BCD(7 downto 4) + "0011";
+            end if;
+            if BCD(3 downto 0) > "0100" then
+                BCD(3 downto 0) := BCD(3 downto 0) + "0011";
+            end if;
+            
+            BCD := BCD(6 downto 0) & BINARY(7); -- Shift left.
+            BINARY := BINARY(6 downto 0) & '0';
+        end loop;
+
+        if BCD_MODE = '1' and (ADR_PNTR_RTC < 10 or ADR_PNTR_RTC = 50) then
+            RTC_RAM_IN <= std_logic_vector(BCD);
+        else
+            RTC_RAM_IN <= RTC_AD_IN;
+        end if;
+    end process BINARY_2_BCD;
 
     P_PENDING: process
-    -- Theseflip flops indicate the need of the respected RAM
+    -- These flip flops indicate the need of the respective RAM
     -- bytes to be written back to the PCF85363 RAM.
     begin
         wait until CLK = '1' and CLK' event;
         if RESET = '1' then
             PENDING <= (others => '0');
-        elsif PCF_DIRECT = '0' and RTCCS = '1' and RTCDS = '1' and RTC_RWn = '0' then -- Write.
-            PENDING(RTC_ADR_PNTR) <= '1';
-        elsif RTC_STATE = RTC_WR and DATA_RDY = '1' then
-            PENDING(RTC_ADR_PNTR) <= '0';
+        elsif RTCCS = '1' and RTCDS = '1' and RTC_RWn = '0' then -- Write.
+            PENDING(ADR_PNTR_1287) <= '1';
+        elsif RTC_STATE = IDLE and RTC_STATE = RTC_WR and NEXT_RTC_STATE = RTC_WR then
+            PENDING(ADR_PNTR_RTC) <= '0';
         end if;
     end process P_PENDING;
 
     RTC_1287_REGISTERS: process
     -- These are the registers in the C1287 address map.
+    -- The RAM is always BCD coded for the time and date registers.
     begin
         wait until CLK = '1' and CLK' event;
-        if RTCCS = '0' and RTC_STATE = IDLE then
-            -- This is the mapping of the DS1287 registers  to
-            -- the PCF85363 registers.
-            case RTC_85363_PNTR is
-                when 1 => RTC_ADR_PNTR <= 0; -- Seconds.
-                when 2 => RTC_ADR_PNTR <= 2; -- Minutes.
-                when 3 => RTC_ADR_PNTR <= 4; -- Hours.
-                when 4 => RTC_ADR_PNTR <= 7; -- Day of the Month.
-                when 5 => RTC_ADR_PNTR <= 6; -- Day of the Week.
-                when 6 => RTC_ADR_PNTR <= 8; -- Month.
-                when 7 => RTC_ADR_PNTR <= 9; -- Year.
-                when 8 => RTC_ADR_PNTR <= 1; -- Seconds Alarm.
-                when 9 => RTC_ADR_PNTR <= 3; -- Minutes Alarm.
-                when 10 => RTC_ADR_PNTR <= 5; -- Hours Alarm.
-                when 37 => RTC_ADR_PNTR <= 11; -- Used for DM and 25_12 settings.
-                when 44 => RTC_ADR_PNTR <= 50; -- Century.
-                when 100 => RTC_ADR_PNTR <= 78; -- RAM space.
-                when others => 
-                    -- Map the PCF85363 address range 64 to 99 to the DS1287 address range 14 to 49.
-                    -- Map the PCF85363 address range 101 to 127 to the DS1287 address range 51 to 77.
-                    RTC_ADR_PNTR <= RTC_85363_PNTR - 50;
-            end case;
-        elsif RTCCS = '1' and RTCAS = '1' and RTC_STATE = IDLE then
-            PCF_DIRECT <= RTC_AD_IN(7);
-            RTC_ADR_PNTR <= To_Integer(unsigned(RTC_AD_IN(6 downto 0)));
-        elsif PCF_DIRECT = '0' and RTCCS = '1' and RTCDS = '1' and RTC_RWn = '0' and RTC_STATE = IDLE and RTC_ADR_PNTR < 79 then -- Write, RAM space < 79!
-            BCD_MODE <= RTC_RAM_AD_IN(2);
-            RTC_RAM(RTC_ADR_PNTR) <= RTC_RAM_AD_IN;
-        elsif PCF_DIRECT = '0' and RTC_STATE = RTC_RD and DATA_RDY = '1' and PENDING(RTC_ADR_PNTR) = '0' then -- Do not ovverwrite pending registers.
-            case RTC_ADR_PNTR is
+        if RTCCS = '1' and RTCAS = '1' and RTC_RWn = '0' then
+            ADR_PNTR_1287 <= To_Integer(unsigned(RTC_AD_IN(6 downto 0)));
+        elsif RTCCS = '1' and RTCDS = '1' and RTC_RWn = '0' and ADR_PNTR_1287 < 79 then -- Write, RAM space < 79!
+            if ADR_PNTR_1287 = 11 then
+                BCD_MODE <= RTC_AD_IN(2);
+            end if;
+            RTC_RAM(ADR_PNTR_1287) <= RTC_RAM_IN;
+        elsif RTC_STATE = RTC_RD and DATA_RDY = '1' and PENDING(ADR_PNTR_RTC) = '0' and RTCCS = '0' then -- Do not ovverwrite pending registers.
+            case ADR_PNTR_RTC is
                 when 0 =>
-                    RTC_RAM(RTC_ADR_PNTR) <= '0' & RTC_RAM_85363_IN(6 downto 0);
-                when 1 =>
-                    RTC_RAM(RTC_ADR_PNTR) <= '0' & RTC_RAM_85363_IN(6 downto 0);
+                    RTC_RAM(ADR_PNTR_RTC) <= '0' & DATA_85363_OUT(6 downto 0);
+                when 2 =>
+                    RTC_RAM(ADR_PNTR_RTC) <= '0' & DATA_85363_OUT(6 downto 0);
                 when 11 => -- DS1287 control register B.
-                    BCD_MODE <= RTC_RAM_85363_IN(7);
-                    RTC_RAM(RTC_ADR_PNTR) <= "00000" & RTC_RAM_85363_IN(7) & RTC_RAM_85363_IN(5) & '0'; -- Write, RAM space < 79!
+                    RTC_RAM(ADR_PNTR_RTC) <= "00000" & DATA_85363_OUT(7) & DATA_85363_OUT(5) & '0'; -- Write, RAM space < 79!
                 when others =>
-                    RTC_RAM(RTC_ADR_PNTR) <= RTC_RAM_85363_IN;
+                    RTC_RAM(ADR_PNTR_RTC) <= DATA_85363_OUT;
             end case;
         end if;
     end process RTC_1287_REGISTERS;
 
-    RTC_RAM_Q <=  RTC_RAM(RTC_ADR_PNTR) when RTC_ADR_PNTR <= 79 else x"00";
-    RTC_D_OUT <=  RTC_RAM_Q when PCF_DIRECT = '0' else DATA_85363_OUT;
+    -- Register decimal 13.7 is the battery control flag of the DS1287. The PCF85363A
+    -- does not feature a battery control, so we fake this bit to always good.
+    -- We need a BCD to Binary conversion when data  is time or date and we have binary DS1287 mode.
+    RTC_D_OUT <= x"80" when ADR_PNTR_1287 = 13 else 
+                 RTC_RAM(ADR_PNTR_1287)(7 downto 4) * "1010" + RTC_RAM(ADR_PNTR_1287)(3 downto 0) when BCD_MODE = '1' and (ADR_PNTR_RTC < 10 or ADR_PNTR_RTC = 50) else RTC_RAM(ADR_PNTR_1287);
     RTC_D_EN <= '1' when RTCCS = '1' and RTCDS = '1' and RTC_RWn = '1' else '0';
-
-    RTC_ACK <= '1' when RTCCS = '1' and RTCAS = '1' and RTC_STATE = IDLE else
-               '1' when PCF_DIRECT = '0' and RTCCS = '1' and RTCDS = '1' and RTC_STATE = IDLE else
-               '1' when PCF_DIRECT = '1' and I2C_STATE /= I2C_ADR and NEXT_I2C_STATE = I2C_ADR else
-               '1' when PCF_DIRECT = '1' and I2C_STATE /= SND_DATA and NEXT_I2C_STATE = SND_DATA else '0';
 
     RD_BYTE <= '1' when RTC_STATE = RTC_RD else '0';
     WR_BYTE <= '1' when RTC_STATE = RTC_WR else '0';
+
+    -- This is the mapping of the DS1287 registers  to
+    -- the PCF85363 registers.
+    with ADR_PNTR_85363 select
+        ADR_PNTR_RTC <= 0 when 1, -- Seconds.
+                        2 when 2, -- Minutes.
+                        4 when 3, -- Hours.
+                        7 when 4, -- Day of the Month.
+                        6 when 5, -- Day of the Week.
+                        8 when 6, -- Month.
+                        9 when 7, -- Year.
+                        1 when 8, -- Seconds Alarm.
+                        3 when 9, -- Minutes Alarm.
+                        5 when 10, -- Hours Alarm.
+                        11 when 37, -- Used for DM and 25_12 settings.
+                        50 when 44, -- Century is not supported by PCF85363 and is now RAM.
+                        78 when 100, -- RAM space.
+                        -- Map the PCF85363 address range 64 to 99 to the DS1287 address range 14 to 49.
+                        -- Map the PCF85363 address range 101 to 127 to the DS1287 address range 51 to 77.
+                        ADR_PNTR_85363 - 50 when others;
 
     POINTER_85363: process
     begin
         wait until CLK = '1' and CLK' event;
         if (RTC_STATE = RTC_RD or RTC_STATE = RTC_WR) and NEXT_RTC_STATE = IDLE then
-            case RTC_85363_PNTR is
-                when 10 => RTC_85363_PNTR <= 37;
-                when 37 => RTC_85363_PNTR <= 44;
-                when 44 => RTC_85363_PNTR <= 64;
-                when 127 => RTC_85363_PNTR <= 1;
-                when others => RTC_85363_PNTR <= RTC_85363_PNTR + 1;
+            case ADR_PNTR_85363 is
+                when 10 => ADR_PNTR_85363 <= 37;
+                when 37 => ADR_PNTR_85363 <= 44;
+                when 44 => ADR_PNTR_85363 <= 64;
+                when 127 => ADR_PNTR_85363 <= 1;
+                when others => ADR_PNTR_85363 <= ADR_PNTR_85363 + 1;
             end case;
         end if;
     end process POINTER_85363;
@@ -279,17 +280,13 @@ begin
         end if;
     end process STATE_REGISTER;
 
-    STATE_DECODER: process(DATA_RDY, RTC_STATE, PENDING, RTC_ADR_PNTR, RTCCS, PCF_DIRECT, RTC_RWn, RTCDS)
+    STATE_DECODER: process(DATA_RDY, RTC_STATE, PENDING, ADR_PNTR_RTC, RTCCS, RTC_RWn, RTCDS)
     begin
         case RTC_STATE is
             when IDLE =>
-                if PCF_DIRECT = '0' and RTCCS = '0' and PENDING(RTC_ADR_PNTR) = '1' then
+                if RTCCS = '0' and PENDING(ADR_PNTR_RTC) = '1' then
                     NEXT_RTC_STATE <= RTC_WR;
-                elsif PCF_DIRECT = '0' and RTCCS = '0' then
-                    NEXT_RTC_STATE <= RTC_RD;
-                elsif PCF_DIRECT = '1' and RTCCS = '1' and RTCDS = '1' and RTC_RWn = '0' then
-                    NEXT_RTC_STATE <= RTC_WR;
-                elsif PCF_DIRECT = '1' and RTCCS = '1' and RTCDS = '1' then
+                elsif RTCCS = '0' then
                     NEXT_RTC_STATE <= RTC_RD;
                 else
                     NEXT_RTC_STATE <= IDLE;
@@ -491,19 +488,15 @@ begin
                 SHIFT_REG := DEVICE_ADR & '0'; -- Write address (and data for write to slave).
             elsif I2C_STATE /= CONTROL_2 and NEXT_I2C_STATE = CONTROL_2 then -- Load control data.
                 SHIFT_REG := DEVICE_ADR & '1'; -- Read from slave.
-            elsif PCF_DIRECT = '0' and I2C_STATE /= I2C_ADR and NEXT_I2C_STATE = I2C_ADR then -- Load address to be sent.
-                SHIFT_REG := Conv_Std_Logic_Vector(RTC_85363_PNTR, 8);
-            elsif PCF_DIRECT = '1' and I2C_STATE /= I2C_ADR and NEXT_I2C_STATE = I2C_ADR then -- Load address to be sent.
-                SHIFT_REG := Conv_Std_Logic_Vector(RTC_ADR_PNTR, 8);
-            elsif PCF_DIRECT = '0' and I2C_STATE /= SND_DATA and NEXT_I2C_STATE = SND_DATA then -- Load data to be sent.
-                case RTC_85363_PNTR is
+            elsif I2C_STATE /= I2C_ADR and NEXT_I2C_STATE = I2C_ADR then -- Load address to be sent.
+                SHIFT_REG := Conv_Std_Logic_Vector(ADR_PNTR_85363, 8);
+            elsif I2C_STATE /= SND_DATA and NEXT_I2C_STATE = SND_DATA then -- Load data to be sent.
+                case ADR_PNTR_85363 is
                     when 37 => -- Control register B of the DS1287.
-                        SHIFT_REG := RTC_RAM_Q(2) & '0' & RTC_RAM_Q(1) & "00000";
+                        SHIFT_REG := RTC_RAM(ADR_PNTR_RTC)(2) & '0' & RTC_RAM(ADR_PNTR_RTC)(1) & "00000";
                     when others =>
-                        SHIFT_REG := RTC_RAM_Q;
+                        SHIFT_REG := RTC_RAM(ADR_PNTR_RTC);
                 end case;
-            elsif PCF_DIRECT = '1' and I2C_STATE /= SND_DATA and NEXT_I2C_STATE = SND_DATA then -- Load data to be sent.
-                SHIFT_REG := RTC_RAM_AD_IN;
             elsif I2C_STATE = CONTROL_1 and I2C_STRB = '1' then -- Shift out.
                 SHIFT_REG := SHIFT_REG(6 downto 0) & '0';
             elsif I2C_STATE = CONTROL_2 and I2C_STRB = '1' then -- Shift out.

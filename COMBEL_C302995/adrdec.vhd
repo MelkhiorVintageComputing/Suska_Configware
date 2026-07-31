@@ -11,6 +11,10 @@
 ----                                                                        ----
 ---- Address decoder file.                                                  ----
 ----                                                                        ----
+---- Remark 1): although the RTC address x"FFFF8961" is write ony, the ori- ----
+---- ginal COMBEL seems to permit a dummy read access and the TOS operating ----
+---- system uses this dummy read to detect the presence of the RTC.         ----
+----                                                                        ----
 ----                                                                        ----
 ---- To Do:                                                                 ----
 ---- -                                                                      ----
@@ -63,6 +67,10 @@
 --   Extra RAM from => x"00E80000" to < x"00F00000".
 -- Revision 2K24A 20240620
 --   SCC enhancements.
+-- Revision 2K24B 20241224
+--   To improve data integrity the address decoder uses UDSn and LDSn where possible.
+-- Revision 2K25A 20250620
+--   RTCCS: the RTC address register is now write only.
 --
 
 library ieee;
@@ -94,7 +102,6 @@ entity ADRDEC is
         MFPCSn                  : out std_logic; -- Select signal for the MFP.
         SNDCSn                  : out std_logic; -- Select signal for the SOUND.
         SCCn                    : out std_logic; -- Select signal for the SCC chip.
-        SCCABn                  : out std_logic; -- SCC channel A ('1') or B ('0') select.
         RTCCS                   : out std_logic; -- Select signal for the DS1287 real time clock.
         RP5C15_CS               : out std_logic; -- Select signal for the RP5C15 real time clock.
         JOY_RS                  : out std_logic; -- Joystick read and write register chip select.
@@ -149,7 +156,7 @@ signal US       : boolean; -- Normal user.
 begin
     SU <= true when FC = "101" or FC = "110" else false; -- Superuser mode.
     US <= true when FC = "001" or FC = "010" else false; -- User mode.
-    
+
     ADR_I <= ADR & '0'; -- We use word address
 
     ROM_6n <= '0' when (SU = true or US = true) and ASn = '0' and RWn = '1' and ADR_HI >= x"00FA" and ADR_HI < x"00FC" else '1'; -- Cartridge ROM.
@@ -176,14 +183,28 @@ begin
             '0' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and RWn = '1' and (SU = true or US = true) else '1'; -- Validation for RP5C15 RTC.
 
     -- Select MFP (8 bit access), write access in superuser mode:
-    MFPCSn <=   '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and ADR_I < x"FFFFFA40" and  RWn = '0' and SU = true else
-                '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and ADR_I < x"FFFFFA40" and RWn = '1' and (SU = true or US = true) else '1';
+    MFPCSn <=   '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and LDSn = '0' and ADR_I < x"FFFFFA40" and  RWn = '0' and SU = true else
+                '0' when ASn = '0' and ADR_I >= x"FFFFFA00" and LDSn = '0' and ADR_I < x"FFFFFA40" and RWn = '1' and (SU = true or US = true) else '1';
 
     -- Select Sound (8 bit access), write access in SU mode:
     SNDCSn <=   '0' when ASn = '0' and UDSn = '0' and (ADR_I = x"FFFF8800" or ADR_I = x"FFFF8802") and RWn = '0' and SU = true else
                 '0' when ASn = '0' and UDSn = '0' and ADR_I = x"FFFF8800" and  RWn = '1' and (SU = true or US = true) else '1';
 
     -- Write access only in SU mode:
+    --SCCn <= '0' when ASn = '0' and ADR_I = x"FFFF8C80" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C82" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C84" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C86" and LDSn = '0' and RWn = '0' and SU = true else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C80" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C82" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C84" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else
+    --        '0' when ASn = '0' and ADR_I = x"FFFF8C86" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else '1';
+
+    
+    -- Write access only in SU mode:
+    -- TOS and EmuTOS tests the presence of the SCC chip by a read access to register x"FFFF8C80". The
+    -- correct address of the SCC is x"FFFF8C81". To be compatible with this issue of TOS and EmuTOS the
+    -- address decoder accepts even and odd addresses (omit LDSn).
     SCCn <= '0' when ASn = '0' and ADR_I = x"FFFF8C80" and RWn = '0' and SU = true else
             '0' when ASn = '0' and ADR_I = x"FFFF8C82" and RWn = '0' and SU = true else
             '0' when ASn = '0' and ADR_I = x"FFFF8C84" and RWn = '0' and SU = true else
@@ -193,15 +214,12 @@ begin
             '0' when ASn = '0' and ADR_I = x"FFFF8C84" and RWn = '1' and (SU = true or US = true) else
             '0' when ASn = '0' and ADR_I = x"FFFF8C86" and RWn = '1' and (SU = true or US = true) else '1';
 
-    SCCABn <= '1' when ASn = '0' and ADR_I = x"FFFF8C80" and (SU = true or US = true) else
-              '1' when ASn = '0' and ADR_I = x"FFFF8C82" and (SU = true or US = true) else '0';
-
     -- Read access only for the buttons:
-    BUTTON_RS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9200" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 16 bit.
+    BUTTON_RS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9200" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only, 8 bit.
 
     -- Write access only in supervisor mode:
-    JOY_RS <= '1' when ASn = '0' and ADR_I = x"FFFF9202" and RWn = '0' and SU = true else
-              '1' when ASn = '0' and ADR_I = x"FFFF9202" and RWn = '1' and (SU = true or US = true) else '0';
+    JOY_RS <= '1' when ASn = '0' and ADR_I = x"FFFF9202" and UDSn = '0' and RWn = '0' and SU = true else
+            '1' when ASn = '0' and ADR_I = x"FFFF9202" and UDSn = '0' and RWn = '1' and (SU = true or US = true) else '0';
 
     PAD0X_RS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9210" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
     PAD0Y_RS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF9212" and RWn = '1' and (SU = true or US = true) else '0'; -- Read only
@@ -210,15 +228,17 @@ begin
 
     -- Floating point coprocessor:
     FPUCS <= '1' when ASn = '0' and UDSn = '0' and ADR_I(31 downto 4) = x"FFFFFA4" and SU = true else
-             '1' when ASn = '0' and UDSn = '0' and ADR_I(31 downto 4) = x"FFFFFA4" and SU = true else '0';
+             '1' when ASn = '0' and UDSn = '0' and ADR_I(31 downto 4) = x"FFFFFA5" and SU = true else '0';
 
     -- Select RTC DS1287 / MC146818A, write access in supervisor mode (x"8961", x"8963"):
-    RTCCS <= '1' when ASn = '0' and LDSn = '0' and (ADR_I = x"FFFF8960" or ADR_I = x"FFFF8962") and RWn = '0' and SU = true else
-             '1' when ASn = '0' and LDSn = '0' and (ADR_I = x"FFFF8960" or ADR_I = x"FFFF8962") and RWn = '1' and (SU = true or US = true) else '0';
+    RTCCS <= '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF8960" and RWn = '0' and SU = true else -- Register x"FFFF8961" is write only.
+             '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF8960" and RWn = '1' and (SU = true or US = true) else -- See remark 1) in the header of this file.
+             '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF8962" and RWn = '0' and SU = true else -- Register x"FFFF8963" is R/W.
+             '1' when ASn = '0' and LDSn = '0' and ADR_I = x"FFFF8962" and RWn = '1' and (SU = true or US = true) else '0';
 
     -- Select RTC RP5C15, write access in supervisor mode:
-    RP5C15_CS <= '1' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and RWn = '0' and SU = true else
-                 '1' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and RWn = '1' and (SU = true or US = true) else '0';
+    RP5C15_CS <= '1' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and LDSn = '0' and RWn = '0' and SU = true else
+                 '1' when ASn = '0' and ADR_I >= x"FFFFFC20" and ADR_I < x"FFFFFC40" and LDSn = '0' and RWn = '1' and (SU = true or US = true) else '0';
 
     MEM_CONFIG_RS <= '1' when ADR_I = x"FFFF8000" and ASn = '0' and LDSn = '0' and SU = true else '0'; -- Via LDSn x"FFFF8001".
 
@@ -228,32 +248,32 @@ begin
             '1' when ASn = '0' and ADR_I(31 downto 4) = x"FFFF824" and SU = true else -- ST(E): Palette registers.
             '1' when ASn = '0' and ADR_I(31 downto 4) = x"FFFF825" and SU = true else -- ST(E): Palette registers.
             '1' when ASn = '0' and UDSn = '0' and ADR_I = x"FFFF8260" and SU = true else -- ST(E): Shift mode register.
-            '1' when ASn = '0' and ADR_I = x"FFFF8264" and SU = true else -- All: HSCROLL register.
-            '1' when ASn = '0' and ADR_I = x"FFFF8266" and SU = true else -- Falcon: Shift mode register.
-            '1' when ASn = '0' and ADR_I = x"FFFF8280" and SU = true else -- Falcon: Horizontal hold counter.
-            '1' when ASn = '0' and ADR_I = x"FFFF8282" and SU = true else -- Falcon: Horizontal hold timer.
-            '1' when ASn = '0' and ADR_I = x"FFFF8284" and SU = true else -- Falcon: Horizontal boarder begin.
-            '1' when ASn = '0' and ADR_I = x"FFFF8286" and SU = true else -- Falcon: Horizontal boarder end.
-            '1' when ASn = '0' and ADR_I = x"FFFF8288" and SU = true else -- Falcon: Horizontal display begin.
-            '1' when ASn = '0' and ADR_I = x"FFFF828A" and SU = true else -- Falcon: Horizontal display end.
-            '1' when ASn = '0' and ADR_I = x"FFFF828C" and SU = true else -- Falcon: Horizontal sync start.
-            '1' when ASn = '0' and ADR_I = x"FFFF828E" and SU = true else -- Falcon: Horizontal FS.
-            '1' when ASn = '0' and ADR_I = x"FFFF8290" and SU = true else -- Falcon: Horizontal EE.
-            '1' when ASn = '0' and ADR_I = x"FFFF82A0" and SU = true else -- Falcon: Vertical frequency counter.
-            '1' when ASn = '0' and ADR_I = x"FFFF82A2" and SU = true else -- Falcon: Vertical frequency timer.
-            '1' when ASn = '0' and ADR_I = x"FFFF82A4" and SU = true else -- Falcon: Vertical boarder begin.
-            '1' when ASn = '0' and ADR_I = x"FFFF82A6" and SU = true else -- Falcon: Vertical boarder end.
-            '1' when ASn = '0' and ADR_I = x"FFFF82A8" and SU = true else -- Falcon: Vertical display begin.
-            '1' when ASn = '0' and ADR_I = x"FFFF82AA" and SU = true else -- Falcon: Vertical display end.
-            '1' when ASn = '0' and ADR_I = x"FFFF82AC" and SU = true else -- Falcon: Vertical sync start.
-            '1' when ASn = '0' and ADR_I = x"FFFF82C0" and SU = true else -- Falcon: Video control.
-            '1' when ASn = '0' and ADR_I = x"FFFF82C2" and SU = true else -- Falcon: Video mode.
+            '1' when ASn = '0' and ADR_I = x"FFFF8264" and SU = true else -- All: HSCROLL register. No LDSn due to TOS4.04 byte access.
+            '1' when ASn = '0' and ADR_I = x"FFFF8266" and UDSn = '0' and SU = true else -- Falcon: Shift mode register.
+            '1' when ASn = '0' and ADR_I = x"FFFF8280" and UDSn = '0' and SU = true else -- Falcon: Horizontal hold counter.
+            '1' when ASn = '0' and ADR_I = x"FFFF8282" and UDSn = '0' and SU = true else -- Falcon: Horizontal hold timer.
+            '1' when ASn = '0' and ADR_I = x"FFFF8284" and UDSn = '0' and SU = true else -- Falcon: Horizontal boarder begin.
+            '1' when ASn = '0' and ADR_I = x"FFFF8286" and UDSn = '0' and SU = true else -- Falcon: Horizontal boarder end.
+            '1' when ASn = '0' and ADR_I = x"FFFF8288" and UDSn = '0' and SU = true else -- Falcon: Horizontal display begin.
+            '1' when ASn = '0' and ADR_I = x"FFFF828A" and UDSn = '0' and SU = true else -- Falcon: Horizontal display end.
+            '1' when ASn = '0' and ADR_I = x"FFFF828C" and UDSn = '0' and SU = true else -- Falcon: Horizontal sync start.
+            '1' when ASn = '0' and ADR_I = x"FFFF828E" and UDSn = '0' and SU = true else -- Falcon: Horizontal FS.
+            '1' when ASn = '0' and ADR_I = x"FFFF8290" and UDSn = '0' and SU = true else -- Falcon: Horizontal EE.
+            '1' when ASn = '0' and ADR_I = x"FFFF82A0" and UDSn = '0' and SU = true else -- Falcon: Vertical frequency counter.
+            '1' when ASn = '0' and ADR_I = x"FFFF82A2" and UDSn = '0' and SU = true else -- Falcon: Vertical frequency timer.
+            '1' when ASn = '0' and ADR_I = x"FFFF82A4" and UDSn = '0' and SU = true else -- Falcon: Vertical boarder begin.
+            '1' when ASn = '0' and ADR_I = x"FFFF82A6" and UDSn = '0' and SU = true else -- Falcon: Vertical boarder end.
+            '1' when ASn = '0' and ADR_I = x"FFFF82A8" and UDSn = '0' and SU = true else -- Falcon: Vertical display begin.
+            '1' when ASn = '0' and ADR_I = x"FFFF82AA" and UDSn = '0' and SU = true else -- Falcon: Vertical display end.
+            '1' when ASn = '0' and ADR_I = x"FFFF82AC" and UDSn = '0' and SU = true else -- Falcon: Vertical sync start.
+            '1' when ASn = '0' and ADR_I = x"FFFF82C0" and UDSn = '0' and SU = true else -- Falcon: Video control.
+            '1' when ASn = '0' and ADR_I = x"FFFF82C2" and SU = true else -- Falcon: Video mode. No UDSn due to TOS4.04 byte access.
             '1' when ASn = '0' and ADR_I = x"FFFF9220" and LDSn = '1' and SU = true else -- XPEN.
             '1' when ASn = '0' and ADR_I = x"FFFF9222" and LDSn = '1' and SU = true else -- YPEN.
-            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF98" and SU = true else -- Falcon pallette registers.
-            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF99" and SU = true else -- Falcon pallette registers.
-            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF9A" and SU = true else -- Falcon pallette registers.
-            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF9B" and SU = true else '0'; -- Falcon pallette registers.
+            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF98" and UDSn = '0' and SU = true else -- Falcon pallette registers.
+            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF99" and UDSn = '0' and SU = true else -- Falcon pallette registers.
+            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF9A" and UDSn = '0' and SU = true else -- Falcon pallette registers.
+            '1' when ASn = '0' and ADR_I(31 downto 8) = x"FFFF9B" and UDSn = '0' and SU = true else '0'; -- Falcon pallette registers.
 
     VIDEO_BASE_HI_RS <= '1' when ADR_I = x"FFFF8200" and ASn = '0' and LDSn = '0' and SU = true else '0'; -- Via LDSn x"FFFF8201".
     VIDEO_BASE_MID_RS <= '1' when ADR_I = x"FFFF8202" and ASn = '0' and LDSn = '0' and SU = true else '0'; -- Via LDSn x"FFFF8203".
@@ -261,34 +281,33 @@ begin
     VIDEO_COUNT_HI_RS <= '1' when ADR_I = x"FFFF8204" and ASn = '0' and LDSn = '0' and SU = true else '0'; -- Via LDSn x"FFFF8205".
     VIDEO_COUNT_MID_RS <= '1' when ADR_I = x"FFFF8206" and ASn = '0' and LDSn = '0' and SU = true else '0'; -- Via LDSn x"FFFF8207".
     VIDEO_COUNT_LOW_RS <= '1' when ADR_I = x"FFFF8208" and ASn = '0' and LDSn = '0' and SU = true else '0'; -- Via LDSn x"FFFF8209".
-    VIDEO_BASE_HIWORD_RS <= '1' when ADR_I = x"FFFF8212" and ASn = '0' and SU = true else '0';
-    VIDEO_BASE_LOWORD_RS <= '1' when ADR_I = x"FFFF8214" and ASn = '0' and SU = true else '0';
-    VIDEO_COUNT_HIWORD_RS <= '1' when ADR_I = x"FFFF8216" and ASn = '0' and SU = true else '0';
-    VIDEO_COUNT_LOWORD_RS <= '1' when ADR_I = x"FFFF8218" and ASn = '0' and SU = true else '0';
+    VIDEO_BASE_HIWORD_RS <= '1' when ADR_I = x"FFFF8212" and ASn = '0' and UDSn = '0' and SU = true else '0';
+    VIDEO_BASE_LOWORD_RS <= '1' when ADR_I = x"FFFF8214" and ASn = '0' and UDSn = '0' and SU = true else '0';
+    VIDEO_COUNT_HIWORD_RS <= '1' when ADR_I = x"FFFF8216" and ASn = '0' and UDSn = '0' and SU = true else '0';
+    VIDEO_COUNT_LOWORD_RS <= '1' when ADR_I = x"FFFF8218" and ASn = '0' and UDSn = '0' and SU = true else '0';
 
     -- These are shadows required in the video counter module:
     SHMOD_ST_SHADOW_RS <= '1' when ASn = '0' and UDSn = '0' and ADR_I = x"FFFF8260" and SU = true else '0';
-    SHMOD_F_SHADOW_RS <= '1' when ASn = '0' and ADR_I = x"FFFF8266" and SU = true else '0';
-    VMODE_SHADOW_RS <= '1' when ASn = '0' and ADR_I = x"FFFF82C2" and SU = true else '0';
+    SHMOD_F_SHADOW_RS <= '1' when ASn = '0' and ADR_I = x"FFFF8266" and UDSn = '0' and SU = true else '0';
+    VMODE_SHADOW_RS <= '1' when ASn = '0' and ADR_I = x"FFFF82C2" and SU = true else '0'; -- No UDSn due to TOS4.04 byte access.
 
-    LINE_OFFS_RS <= '1' when ADR_I = x"FFFF820E" and ASn = '0' and SU = true else '0';
-    LINE_WIDTH_RS <= '1' when ADR_I = x"FFFF8210" and ASn = '0' and SU = true else '0';
+    LINE_OFFS_RS <= '1' when ADR_I = x"FFFF820E" and ASn = '0' and UDSn = '0' and SU = true else '0';
+    LINE_WIDTH_RS <= '1' when ADR_I = x"FFFF8210" and ASn = '0' and UDSn = '0' and SU = true else '0';
 
     -- User RAM:
     RAMn <= '0' when RAM_16MB = '0' and ADR_I >= x"00000800" and ADR_I < x"00400000" and ASn = '0' and (SU = true or US = true) else -- 4MB RAM.
             '0' when RAM_16MB = '1' and ADR_I >= x"00000800" and ADR_I < x"00E00000" and ASn = '0' and (SU = true or US = true) else -- 14MB RAM.
             '0' when ADR_I >= x"00E80000" and ADR_I < x"00F00000" and ASn = '0' and (SU = true or US = true) else -- Extra E80000-EFFFFF RAM (for Udo).
-            --'0' when RAM_512MB = '1' and ADR_I >= x"00000800" and ADR_I < x"00E00000" and ASn = '0' and (SU = true or US = true) else -- 512MB RAM.
-            --'0' when RAM_512MB = '1' and ADR_I >= x"01000000" and ADR_I < x"20000000" and ASn = '0' and (SU = true or US = true) else -- 512MB RAM.
+            '0' when RAM_512MB = '1' and ADR_I >= x"00000800" and ADR_I < x"00E00000" and ASn = '0' and (SU = true or US = true) else -- 512MB RAM.
+            '0' when RAM_512MB = '1' and ADR_I >= x"01000000" and ADR_I < x"20000000" and ASn = '0' and (SU = true or US = true) else -- 512MB RAM.
             '0' when ADR_I >= x"00000008" and ADR_I < x"00000800" and ASn = '0' and SU = true and RWn = '0' else
             '0' when ADR_I >= x"00000008" and ADR_I < x"00000800" and ASn = '0' and RWn = '1' and (SU = true or US = true) else '1';
 
     ALTRAMn <= '0' when ADR_I >= x"01000000" and ADR_I < x"04000000" and ASn = '0' and (SU = true or US = true) else '1'; -- This are additional 48MB :-)
 
-    SHADOW_TOS_CSn <= '0' when ASn = '0' and ADR_I = x"00F82000" and (SU = true or US = true) else '1';
+    SHADOW_TOS_CSn <= '0' when ASn = '0' and ADR_I = x"00F82000" and UDSn = '0' and (SU = true or US = true) else '1';
 
     -- ISP1160 compatible core chip select:
     USB1160_CSn <= '0' when ASn = '0' and (ADR_I = x"00F80000" or ADR_I = x"00F80004") and (SU = true or US = true) else '1';
-    Lightning_CSn <= '0' when ASn = '0' and ADR_I = x"00F80008" and (SU = true or US = true) else '1';
-
+    Lightning_CSn <= '0' when ASn = '0' and ADR_I = x"00F80008" and LDSn = '0' and (SU = true or US = true) else '1'; -- 0x0FFF80009.
 end BEHAVIOR;

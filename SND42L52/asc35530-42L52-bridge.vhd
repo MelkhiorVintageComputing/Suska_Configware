@@ -7,14 +7,14 @@
 ----                                                                ----
 ---- Description:                                                   ----
 ---- The CS42L52 audio codec is controlled via a set of registers.  ----
----- These registers are mapped to the Atari register mapping,      ----
----- for more information see the Suska-III-C register listing.     ----
----- All registers written to the CODEC are write only respective   ----
----- to the Suska-III-C address mapping. All registers written by   ----
----- the CS4299 codec are read only respective to the Suska-III-C   ----
----- address mapping. The default initialitation of this core is    ----
----- master volume set to 0dB and not muted. The auxiliary port     ----
----- volume is set to 0dB and not muted.                            ----
+---- These registers are mapped to the Atari register mapping, for  ----
+---- more information see the Suska register listing. All registers ----
+---- written to the CODEC are write only respective to the Suska    ----
+---- address mapping. All registers written by the CS4299 codec are ----
+---- read only respective to the Suska address mapping. The default ----
+---- initialitation of this core is master volume set to 0dB and    ----
+---- not muted. The auxiliary port volume is set to 0dB and not     ----
+---- muted.                                                         ----
 ---- Playback and capture data is possible in the following way:    ----
 ---- The INT output indicates the beginning of a new frame. From    ----
 ---- this time all registers must be updated or read within a       ----

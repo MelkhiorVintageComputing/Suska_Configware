@@ -18,14 +18,11 @@
 
 # create_clock -name CLK -period 100.000 -waveform {0.000 50.000} [get_ports {CLK}]
 
-#create_clock -period 166.600 -name CLK_6MHz [get_ports {CLK_6MHz}]
-create_clock -period 125.000 -name CLK_CPU [get_ports {CLK_CPU}]
-create_clock -period 62.500 -name CLK_16MHz [get_ports {CLK_16MHz}]
+create_clock -period 62.500 -name CLK_IN6 [get_ports {CLK_IN6}]
+create_clock -period 62.500 -name CLK_IN8 [get_ports {CLK_IN8}]
 
-derive_pll_clocks
-#derive_pll_clocks -use_net_name
+derive_pll_clocks -use_net_name
 derive_clock_uncertainty
 
-set_clock_groups -exclusive -group {CLK_CPU}
-set_clock_groups -exclusive -group {CLK_16MHz}
-#set_clock_groups -exclusive -group {CODEC_SCLK}
+set_clock_groups -exclusive -group {CLK_IN6}
+set_clock_groups -exclusive -group {CLK_IN8}

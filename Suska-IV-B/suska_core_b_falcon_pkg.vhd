@@ -19,7 +19,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright © 2021... Wolfgang Foerster - Inventronik GmbH.      ----
+---- Copyright © 2018... Wolfgang Foerster - Inventronik GmbH.      ----
 ----                                                                ----
 ---- All rights reserved. No portion of this sourcecode may be      ----
 ---- reproduced or transmitted in any form by any means, whether    ----
@@ -31,71 +31,128 @@
 -- Revision History
 --
 -- Revision 2K21A 20211224 WF
---   Initial release.
+--   Initial Release.
+-- Revision 2K25A 20250620 WF
+--   Updates concerning changes of the IP core.
 --
+--   !!! See the header for actual configuration switch settings!!!
+
+library work;
+use work.COMBEL_PKG.all; -- Required for RAMWIDTH_TYPE.
 
 library ieee;
 use ieee.std_logic_1164.all;
 
-package SUSKA_CORE_C_FALCON_PKG is
+package SUSKA_CORE_B_FALCON_PKG is
 
-    type RAMWIDTH_TYPE is(L32, W16, B8);
+    component SDRAM_TO_EFINIX_TRION
+        port(
+            CLK                         : in std_logic;
+            RESETn                      : in std_logic;
+    
+            RAM_ADR                     : in std_logic_vector(31 downto 2);
+            RAM_D_IN                    : in std_logic_vector(31 downto 0);
+            RAM_D_OUT                   : out std_logic_vector(31 downto 0);
+            RAM_RASn                    : in std_logic;
+            RAM_CASn                    : in std_logic;
+            RAM_DQMn                    : in std_logic_vector(3 downto 0);
+            RAM_WEn                     : in std_logic;
+    
+            DDR_AREADY                  : in std_logic;
+            DDR_AADR                    : out std_logic_vector(31 downto 0);
+            DDR_ATYPE                   : out std_logic;
+            DDR_AVALID                  : out std_logic;
+            DDR_ABURST                  : out std_logic_vector(1 downto 0);
+            DDR_ASIZE                   : out std_logic_vector(2 downto 0);
+            DDR_ALEN                    : out std_logic_vector(7 downto 0);
+            DDR_AID                     : out std_logic_vector(7 downto 0);
+            DDR_ALOCK                   : out std_logic_vector(1 downto 0);
+    
+            DDR_BID                     : in std_logic_vector(7 downto 0); -- Not used here.
+            DDR_BREADY                  : out std_logic;
+            DDR_BVALID                  : in std_logic; -- Not used here.
+    
+            DDR_RDATA                   : in std_logic_vector(255 downto 0);
+            DDR_RID                     : in std_logic_vector(7 downto 0); -- Not used here.
+            DDR_RLAST                   : in std_logic;
+            DDR_RREADY                  : out std_logic;
+            DDR_RRESP                   : in std_logic_vector(1 downto 0); -- Not used here.
+            DDR_RVALID                  : in std_logic;
+    
+            DDR_WDATA                   : out std_logic_vector(255 downto 0);
+            DDR_WID                     : out std_logic_vector(7 downto 0); -- Not used here.
+            DDR_WLAST                   : out std_logic;
+            DDR_WREADY                  : in std_logic;
+            DDR_WSTRB                   : out std_logic_vector(31 downto 0);
+            DDR_WVALID                  : out std_logic
+    
+            -- Currently not used:
+            --DDR_CFG_SCL_IN              : out std_logic;
+            --DDR_CFG_SDA_IN              : out std_logic;
+            --DDR_CFG_SDA_OEN             : in std_logic;
+            
+            --DDR_CFG_SEQ_RST             : out std_logic;
+            --DDR_CFG_SEQ_START           : out std_logic;
+            --DDR_CFG_RST_N               : out std_logic
+        );
+    end component SDRAM_TO_EFINIX_TRION;
 
-    component WF68K30L_TOP
-        generic(VERSION     : std_logic_vector(31 downto 0) := x"20191224"; -- CPU version number.
-            -- The following two switches are for debugging purposes. Default for both is false.
-            NO_PIPELINE     : boolean := false;  -- If true the main controller work in scalar mode.
-            NO_LOOP         : boolean := false; -- If true the DBcc loop mechanism is disabled.
-            NO_BFOPS        : boolean := false); -- No bitfield operations if true. This saves 30% of the CPU resources.
+    component WF68K30_TOP
         port (
-            CLK             : in std_logic;
+            CLK                     : in std_logic;
 
             -- Address and data:
-            ADR_OUT         : out std_logic_vector(31 downto 0);
-            DATA_IN         : in std_logic_vector(31 downto 0);
-            DATA_OUT        : out std_logic_vector(31 downto 0);
-            DATA_EN         : out std_logic; -- Enables the data port.
+            ADR_OUT                 : out std_logic_vector(31 downto 0);
+            DATA_IN                 : in std_logic_vector(31 downto 0);
+            DATA_OUT                : out std_logic_vector(31 downto 0);
+            DATA_EN                 : out std_logic; -- Enables the data port.
 
             -- System control:
-            BERRn           : in std_logic;
-            RESET_INn       : in std_logic;
-            RESET_OUT       : out std_logic; -- Open drain.
-            HALT_INn        : in std_logic;
-            HALT_OUTn       : out std_logic; -- Open drain.
+            BERRn                   : in std_logic;
+            RESET_INn               : in std_logic;
+            RESET_OUT               : out std_logic; -- Open drain.
+            HALT_INn                : in std_logic;
+            HALT_OUTn               : out std_logic; -- Open drain.
 
             -- Processor status:
-            FC_OUT          : out std_logic_vector(2 downto 0);
+            FC_OUT                  : out std_logic_vector(2 downto 0);
 
             -- Interrupt control:
-            AVECn           : in std_logic;
-            IPLn            : in std_logic_vector(2 downto 0);
-            IPENDn          : out std_logic;
+            AVECn                   : in std_logic;
+            IPLn                    : in std_logic_vector(2 downto 0);
+            IPENDn                  : out std_logic;
 
             -- Aynchronous bus control:
-            DSACKn          : in std_logic_vector(1 downto 0);
-            SIZE            : out std_logic_vector(1 downto 0);
-            ASn             : out std_logic;
-            RWn             : out std_logic;
-            RMCn            : out std_logic;
-            DSn             : out std_logic;
-            ECSn            : out std_logic;
-            OCSn            : out std_logic;
-            DBENn           : out std_logic; -- Data buffer enable.
-            BUS_EN          : out std_logic; -- Enables ADR, ASn, DSn, RWn, RMCn, FC and SIZE.
+            DSACKn                  : in std_logic_vector(1 downto 0);
+            SIZE                    : out std_logic_vector(1 downto 0);
+            ASn                     : out std_logic;
+            RWn                     : out std_logic;
+            RMCn                    : out std_logic;
+            DSn                     : out std_logic;
+            ECSn                    : out std_logic;
+            OCSn                    : out std_logic;
+            DBENn                   : out std_logic; -- Data buffer enable.
+            BUS_EN                  : out std_logic; -- Enables ADR, ASn, DSn, RWn, RMCn, FC and SIZE.
 
             -- Synchronous bus control:
-            STERMn          : in std_logic;
+            CBACKn                  : in std_logic;
+            STERMn                  : in std_logic;
+            CBREQn                  : out std_logic;
 
-            -- Status controls:
-            STATUSn         : out std_logic;
-            REFILLn         : out std_logic;
+            -- Cache and MMU controls:
+            CDISn                   : in std_logic;
+            CIINn                   : in std_logic;
+            CIOUTn                  : out std_logic;
+            MMUDISn                 : in std_logic;
+            STATUSn                 : out std_logic;
+            REFILLn                 : out std_logic;
 
             -- Bus arbitration control:
-            BRn             : in std_logic;
-            BGn             : out std_logic;
-            BGACKn          : in std_logic
+            BRn                     : in std_logic;
+            BGn                     : out std_logic;
+            BGACKn                  : in std_logic
         );
-    end component WF68K30L_TOP;
+    end component WF68K30_TOP;
 
     component COMBEL_TOP -- Combel chip.
         generic(RAM_16              : boolean); -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
@@ -125,7 +182,7 @@ package SUSKA_CORE_C_FALCON_PKG is
             RAM_CKE                 : out std_logic; -- RAM clock enable.
             RAM_CSn                 : out std_logic; -- RAM chip enable.
             RAM_BA                  : out std_logic_vector(1 downto 0); -- SD-RAM bank select.
-            RAM_ADR                 : out std_logic_vector(12 downto 0); -- SD-RAM address bus.
+            RAM_ADR                 : out std_logic_vector(12 downto 0); -- SD-RAM linear address bus.
             RAM_ADR_32              : out std_logic_vector(31 downto 2); -- 32 bit linear RAM address (LONG32).
             RAM_WEn                 : out std_logic;
             RAM_RASn                : out std_logic; -- This is for 512Mb chips.
@@ -383,38 +440,9 @@ package SUSKA_CORE_C_FALCON_PKG is
         );
     end component FDMA_TOP_SOC;
 
-    component WF_SHD101775IP_TOP_SOC -- Shadow.
-        port (
-            RESETn      : in std_logic;
-            CLK         : in std_logic; -- 16MHz, same as MCU clock.
-
-            -- Video control:
-            M_DATA      : in std_logic_vector(15 downto 0); -- Data of the shared system RAM.
-            SEL_640x400 : in std_logic; -- Select either 640x400 or 640x480.
-            DE          : in std_logic; -- Video Data enable.
-            LOADn       : in std_logic; -- Video data load control.
-
-            -- VIDEO RAM:
-            -- The core is written for use of a KM681000 SRAM.
-            -- If smaller ones are used, do not connect A16,
-            -- A15 and if not necessary CS and CSn.
-            R_ADR       : out std_logic_vector(14 downto 0);
-            R_DATA_IN   : in std_logic_vector(7 downto 0);
-            R_DATA_OUT  : out std_logic_vector(7 downto 0);
-            R_DATA_EN   : out std_logic;
-            R_WRn       : out std_logic;
-
-            -- LCD control:
-            UDATA       : out std_logic_vector(3 downto 0);
-            LDATA       : out std_logic_vector(3 downto 0);
-            LFS         : out std_logic; -- Line frame strobe.
-            VDCLK       : out std_logic; -- Video data clock.
-            LLCLK       : out std_logic -- Line latch clock.
-        );
-    end component WF_SHD101775IP_TOP_SOC;
-
     component VIDEL_TOP
-        generic(RAM_16              : boolean); -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+        generic(RAM_16              : boolean := false; -- Set true, if we have a 16 bit RAM data bus, false for 32 bit.
+                HDMI                : boolean := false); -- HDMI requires a different timing.
         port (
             -- System and core control:
             RESET                   : in std_logic;
@@ -538,7 +566,6 @@ package SUSKA_CORE_C_FALCON_PKG is
             RESETn                  : in std_logic;
             CLK_16MHz               : in std_logic;
             CLK_32MHz               : in std_logic;
-            CLK_SDCARD              : in std_logic;
 
             CD_IN                   : in std_logic_vector(7 downto 0);
             CD_OUT                  : out std_logic_vector(7 downto 0);
@@ -560,6 +587,7 @@ package SUSKA_CORE_C_FALCON_PKG is
             FDD_D0SELn              : in std_logic;
             FDD_SDSEL               : in std_logic;
             FDD_DRIVETYPE           : in std_logic;
+            FDD_DISKCHNG            : out std_logic;
             FDD_RDn                 : out std_logic;
             FDD_TR00n               : out std_logic;
             FDD_IPn                 : out std_logic;
@@ -628,36 +656,33 @@ package SUSKA_CORE_C_FALCON_PKG is
         );
     end component WF68901IP_TOP_SOC;
 
-    component WF2149IP_TOP_SOC -- Sound.
+    component WF2149IP_DIGOUT_TOP_SOC -- Sound.
         port(
 
-            SYS_CLK     : in std_logic; -- Read the inforation in the header!
-            RESETn      : in std_logic;
+            SYS_CLK                 : in std_logic; -- Read the inforation in the header!
+            RESETn                  : in std_logic;
 
-            WAV_CLK     : in std_logic; -- Read the inforation in the header!
-            SELn        : in std_logic;
+            WAV_CLK                 : in std_logic; -- Read the inforation in the header!
+            SELn                    : in std_logic;
 
-            BDIR        : in std_logic;
-            BC2, BC1    : in std_logic;
+            BDIR                    : in std_logic;
+            BC2, BC1                : in std_logic;
 
-            A9n, A8     : in std_logic;
-            DA_IN       : in std_logic_vector(7 downto 0);
-            DA_OUT      : out std_logic_vector(7 downto 0);
-            DA_EN       : out std_logic;
+            A9n, A8                 : in std_logic;
+            DA_IN                   : in std_logic_vector(7 downto 0);
+            DA_OUT                  : out std_logic_vector(7 downto 0);
+            DA_EN                   : out std_logic;
 
-            IO_A_IN     : in std_logic_vector(7 downto 0);
-            IO_A_OUT    : out std_logic_vector(7 downto 0);
-            IO_A_EN     : out std_logic;
-            IO_B_IN     : in std_logic_vector(7 downto 0);
-            IO_B_OUT    : out std_logic_vector(7 downto 0);
-            IO_B_EN     : out std_logic;
+            IO_A_IN                 : in std_logic_vector(7 downto 0);
+            IO_A_OUT                : out std_logic_vector(7 downto 0);
+            IO_A_EN                 : out std_logic;
+            IO_B_IN                 : in std_logic_vector(7 downto 0);
+            IO_B_OUT                : out std_logic_vector(7 downto 0);
+            IO_B_EN                 : out std_logic;
 
-            OUT_A       : out std_logic; -- Analog (PWM) outputs.
-            OUT_B       : out std_logic;
-            OUT_C       : out std_logic
+            OUT_ALL                 : out std_logic_vector(7 downto 0)
         );
-    end component WF2149IP_TOP_SOC;
-
+    end component WF2149IP_DIGOUT_TOP_SOC;
 
     component WF6850IP_TOP_SOC -- ACIA.
       port (
@@ -711,6 +736,15 @@ package SUSKA_CORE_C_FALCON_PKG is
         );
     end component RTC1287_85363;
 
+    component tmds_encoder
+    PORT(  
+        clk      : IN  STD_LOGIC;                     --system clock
+        disp_ena : IN  STD_LOGIC;                     --display enable
+        control  : IN  STD_LOGIC_VECTOR(1 DOWNTO 0);  --C1, C0
+        d_in     : IN  STD_LOGIC_VECTOR(7 DOWNTO 0);  --8-bit data input
+        q_out    : OUT STD_LOGIC_VECTOR(9 DOWNTO 0)); --10-bit encoder output
+    end component tmds_encoder;
+
     component WF5C15_139xIP_TOP -- RP5C15_DS1392 RTC bridge.
         port(
             CLK                     : in std_logic;
@@ -730,6 +764,20 @@ package SUSKA_CORE_C_FALCON_PKG is
             SPI_CE                  : out std_logic
             );
     end component WF5C15_139xIP_TOP;
+
+    component WF_AUDIO_DAC
+        port (
+            CLK                     : in std_logic;
+            RESETn                  : in std_logic;
+            FCLK                    : in std_logic;
+            SDATA_L                 : in std_logic_vector(7 downto 0);
+            SDATA_R                 : in std_logic_vector(7 downto 0);
+            DAC_SCLK                : out std_logic;
+            DAC_SDATA               : out std_logic;
+            DAC_SYNCn               : out std_logic;
+            DAC_LDACn               : out std_logic
+        );
+    end component WF_AUDIO_DAC;
 
     component SCC8530_TOP is
         port(
@@ -851,65 +899,6 @@ package SUSKA_CORE_C_FALCON_PKG is
         );
     end component USB1164_TOP;
 
-    component WF5380_TOP_SOC
-        port (
-            -- System controls:
-            CLK                     : in std_logic;
-            RESET                   : in std_logic;
-
-            -- Address and data:
-            ADR                     : in std_logic_vector(2 downto 0);
-            DATA_IN                 : in std_logic_vector(7 downto 0);
-            DATA_OUT                : out std_logic_vector(7 downto 0);
-            DATA_EN                 : out std_logic;
-
-            -- Bus and DMA controls:
-            CSn                     : in std_logic;
-            RDn                     : in std_logic;
-            WRn                     : in std_logic;
-            EOPn                    : in std_logic;
-            DACKn                   : in std_logic;
-            DRQ                     : out std_logic;
-            INT                     : out std_logic;
-            READY                   : out std_logic;
-
-            -- SCSI bus:
-            DB_INn                  : in std_logic_vector(7 downto 0);
-            DB_OUTn                 : out std_logic_vector(7 downto 0);
-            DB_EN                   : out std_logic;
-            DBP_INn                 : in std_logic;
-            DBP_OUTn                : out std_logic;
-            DBP_EN                  : out std_logic;
-            RST_INn                 : in std_logic;
-            RST_OUTn                : out std_logic;
-            RST_EN                  : out std_logic;
-            BSY_INn                 : in std_logic;
-            BSY_OUTn                : out std_logic;
-            BSY_EN                  : out std_logic;
-            SEL_INn                 : in std_logic;
-            SEL_OUTn                : out std_logic;
-            SEL_EN                  : out std_logic;
-            ACK_INn                 : in std_logic;
-            ACK_OUTn                : out std_logic;
-            ACK_EN                  : out std_logic;
-            ATN_INn                 : in std_logic;
-            ATN_OUTn                : out std_logic;
-            ATN_EN                  : out std_logic;
-            REQ_INn                 : in std_logic;
-            REQ_OUTn                : out std_logic;
-            REQ_EN                  : out std_logic;
-            IOn_IN                  : in std_logic;
-            IOn_OUT                 : out std_logic;
-            IO_EN                   : out std_logic;
-            DCn_IN                  : in std_logic;
-            DCn_OUT                 : out std_logic;
-            DC_EN                   : out std_logic;
-            MSG_INn                 : in std_logic;
-            MSG_OUTn                : out std_logic;
-            MSG_EN                  : out std_logic
-        );
-    end component WF5380_TOP_SOC;
-
     component FLASHBOOT_UMASPI
         port(
             CLK                     : in std_logic;
@@ -932,9 +921,6 @@ package SUSKA_CORE_C_FALCON_PKG is
             FLASH_CEn               : out std_logic;
             JOY                     : out std_logic_vector(7 downto 0);
             KEY                     : out std_logic_vector(15 downto 0);
-            RAMADDR			        : out std_logic_vector(31 downto 0);
-            RAMDATA			        : out std_logic_vector(15 downto 0);
-            RAMWE                   : out std_logic;
             SPI_CLK                 : in std_logic;
             SPI_SSn                 : in std_logic_vector(2 downto 0);
             SPI_DIN                 : in std_logic;
@@ -944,4 +930,4 @@ package SUSKA_CORE_C_FALCON_PKG is
             BOOT_LED                : out std_logic
         );
     end component FLASHBOOT_UMASPI;
-end SUSKA_CORE_C_FALCON_PKG;
+end SUSKA_CORE_B_FALCON_PKG;

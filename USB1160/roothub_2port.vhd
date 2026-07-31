@@ -26,7 +26,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright © 2020... Wolfgang Foerster D- Inventronik GmbH.     ----
+---- Copyright © 2020... Wolfgang Foerster - Inventronik GmbH.      ----
 ----                                                                ----
 ---- This source file may be used and distributed without           ----
 ---- restriction provided that this copyright statement is not      ----

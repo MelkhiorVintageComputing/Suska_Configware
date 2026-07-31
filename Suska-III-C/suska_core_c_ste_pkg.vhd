@@ -435,7 +435,6 @@ package SUSKA_CORE_C_STE_PKG is
             STE_CPROGn      : out std_logic; -- Select signal for the STE's cache processor.
 
             -- SCC chip:
-            SCCABn          : out std_logic;
             SCCRDn          : out std_logic;
             SCCWRn          : out std_logic;
             SCCIACKn        : out std_logic;
@@ -976,6 +975,54 @@ package SUSKA_CORE_C_STE_PKG is
             RTSBn           : out std_logic;
             CTSBn           : in std_logic;
             DCDBn           : in std_logic
+        );
+    end component;
+
+    component TTSCU
+        port (
+            -- System and core control:
+            RESET                   : in std_logic;
+            CLK                     : in std_logic;
+
+            -- Adress and data bus:
+            ADR                     : in std_logic_vector(31 downto 0);
+            ASn                     : in std_logic;
+            FC                      : in std_logic_vector(2 downto 0);
+
+            DATA_IN                 : in std_logic_vector(7 downto 0);
+            DATA_OUT                : out std_logic_vector(7 downto 0);
+            DATA_EN                 : buffer std_logic;
+
+            -- Bus control:
+            RWn                     : in std_logic;
+            LDSn                    : in std_logic;
+            SIZE                    : in std_logic_vector(1 downto 0);
+            DTACKn                  : out std_logic;
+            BERRn                   : out std_logic;
+
+            FPUn                    : out std_logic;
+            IOCS1n                  : out std_logic;
+            IOCS2n                  : out std_logic;
+            MFP1n                   : out std_logic;
+            MFP2n                   : out std_logic;
+
+            AVECn                   : out std_logic;
+            IPLn                    : out std_logic_vector(2 downto 0);
+            IACK5n                  : out std_logic;
+            IACK6n                  : out std_logic;
+
+            SYSIn                   : out std_logic; -- System interrupt.
+            SIRQn                   : out std_logic; -- Software interrupt.
+
+            SIR7n                   : in std_logic;
+            SIR6n                   : in std_logic;
+            SIR5n                   : in std_logic;
+            SIR3n                   : in std_logic;
+
+            HSYNCn                  : in std_logic;
+            VSYNCn                  : in std_logic;
+
+            BIRn                    : in std_logic_vector(7 downto 1)
         );
     end component;
 

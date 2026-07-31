@@ -23,6 +23,17 @@
 ---- additionally two cycles (worst case) when the host controller  ----
 ---- is in FIFO request and the mc processing is therefore delayed. ----
 ----                                                                ----
+---- Important information:                                         ----
+---- Be aware that this core operates at a clock rate of 48MHz in   ----
+---- its own clock domain. So it is necessary to synchronise the    ----
+---- handshake signals CSn, A0, RDn, WRn, DREQ, EOT respectively.   ----
+---- A good practice is to place such a synchronisation in a top    ----
+---- level wrapper or in a design unit where the USB1160 instance   ----
+---- resides.                                                       ----
+---- This core samples the data bus once early during bus access.   ----
+---- For this reason it is mandatory that the data is stable when   ----
+---- CSn is asserted                                                ----
+----                                                                ----
 ---- This  is the top level file with tree state buses.             ----
 ----                                                                ----
 ---- Author(s):                                                     ----

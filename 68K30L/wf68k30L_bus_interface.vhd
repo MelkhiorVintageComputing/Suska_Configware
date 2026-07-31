@@ -43,9 +43,9 @@
 ---- applicable conditions                                          ----
 ----                                                                ----
 ------------------------------------------------------------------------
--- 
+--
 -- Revision History
--- 
+--
 -- Revision 2K14B 20141201 WF
 --   Initial Release.
 -- Revision 2K18A 20180620 WF
@@ -62,8 +62,8 @@
 --   Some modifications to optimize the RETRY logic.
 --   Fixed a bug in the DSACK_MEM logic (now switches explicitely to "00").
 -- Revision 2K24A 20240620 WF
---   Fixed a wrong STERMn bus cycle termination. Thanks to Florian Sassen for the support.
--- 
+--   Fixed a wrong STERMn bus cycle termination. Thanks to Florian Stassen for the support.
+--
 
 library work;
 use work.WF68K30L_PKG.all;
@@ -146,7 +146,7 @@ entity WF68K30L_BUS_INTERFACE is
         BUS_BSY             : out bit -- Bus is busy when '1'.
     );
 end entity WF68K30L_BUS_INTERFACE;
-    
+
 architecture BEHAVIOR of WF68K30L_BUS_INTERFACE is
 type BUS_CTRL_STATES is (IDLE, START_CYCLE, DATA_C1C4);
 type ARB_STATES is(IDLE, GRANT, WAIT_RELEASE_3WIRE);
@@ -198,7 +198,7 @@ begin
     -- bus access. Be aware, that we have to buffer the RETRY signal to prevent the bus
     -- controller of spurious or timing critical BERRn and/or HALTn signals. The logic
     -- for BUS_FLT and RETRY is coded in a way that we have a bus error or a retry
-    -- condition but not both at the same time.    
+    -- condition but not both at the same time.
     -- Note: there is no need to synchronize the already synchronous bus control signals
     variable BERR_VARn      : std_logic;
     variable HALT_VARn      : std_logic;
@@ -227,7 +227,7 @@ begin
                 elsif T_SLICE = IDLE and (BERRn = '1' and HALTn = '1' and BERR_VARn = '1' and HALT_VARn = '1') then
                     RETRY <= '0';
                 elsif RETRY = '0' then
-					BUS_FLT <= (BERRn nor BERR_VARn) and HALT_VARn and HALTn;
+                    BUS_FLT <= (BERRn nor BERR_VARn) and HALT_VARn and HALTn;
                 end if;
             else
                 BUS_FLT <= '0';
@@ -284,12 +284,12 @@ begin
             elsif BUS_CTRL_STATE = DATA_C1C4 and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_FLT = '1' then
                 SSW_80(8) <= '1';
             end if;
-            
+
             OUTBUFFER <= WP_BUFFER; -- Used for exception stack frame type A and B.
             INBUFFER <= DATA_INMUX; -- Used for exception stack frame type B.
         end if;
     end process P_DF;
-    
+
     WRITEBACK_INFO: process
     -- This registers stor writeback relevant information.
     begin
@@ -310,15 +310,15 @@ begin
             DSACK_MEM <= DSACK_In;
         end if;
     end process P_BUSWIDTH;
-    
+
     BUS_WIDTH <= WORD when DSACKn = "01" or DSACK_MEM = "01" else
-                 BYTE when DSACKn = "10" or DSACK_MEM = "10" else 
+                 BYTE when DSACKn = "10" or DSACK_MEM = "10" else
                  LONG_32; -- Also used during synchronous cycles.
-    
+
     BUS_BSY <= '1' when BUS_CTRL_STATE /= IDLE else '0';
 
     PARTITIONING: process
-    -- This logic gives information about the remaining bus cycles The initial 
+    -- This logic gives information about the remaining bus cycles The initial
     -- size is sampled right before the bus acces. This requires the RD_REQ
     -- and WR_REQ signals to work on the positive clock edge.
     variable RESTORE_VAR : std_logic_vector(2 downto 0) := "000";
@@ -342,7 +342,7 @@ begin
                 SIZE_N <= "010"; -- WORD.
             end if;
         end if;
-        
+
         -- Decrementing the size information:
         -- In this logic all permutations are considered. This allows a dynamically changing bus size.
         if RETRY = '1' then
@@ -373,12 +373,12 @@ begin
         --
         if (BUS_FLT = '1' and HALT_In = '1') then -- Abort bus cycle.
             SIZE_N <= "000";
-        end if;        
+        end if;
     end process PARTITIONING;
 
     SIZE_I <= SIZE_N(1 downto 0) when T_SLICE = S0 or T_SLICE = S1 else SIZE_D;
     SIZE <= SIZE_I;
-    
+
     P_DELAY: process
     -- This delay is responsible for a correct SIZE_I information. Use this, if the
     -- process PARTITIONING works on the positive clock edge. The SIZE_I information
@@ -395,7 +395,7 @@ begin
         BUS_CTRL_STATE <= NEXT_BUS_CTRL_STATE;
     end process BUS_STATE_REG;
 
-    BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
+    BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In,
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS)
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
@@ -477,7 +477,7 @@ begin
         elsif BUS_CTRL_STATE /= IDLE and NEXT_BUS_CTRL_STATE = IDLE then
             ADR_OFFSET <= (others => '0');
         elsif BUS_CYC_RDY = '1' then
-            ADR_OFFSET <= ADR_OFFSET + OFFSET_VAR; 
+            ADR_OFFSET <= ADR_OFFSET + OFFSET_VAR;
         end if;
     end process P_ADR_OFFS;
 
@@ -502,7 +502,7 @@ begin
     --  00      01    3 (      B)    3 (L, W   )    2 (L      )    1 (L      )
     --  00      10    3 (   W, B)    2 (   W   )    3 (L      )    2 (L      )
     --  00      11    3 (      B)    2 (   W   )    -----x-----    0 (L      )
-    --  11      00    2 (L, W, B)    1 (L, W   )    0 (L      )    -----x-----     
+    --  11      00    2 (L, W, B)    1 (L, W   )    0 (L      )    -----x-----
     --  11      01    2 (      B)    2 (L, W   )    1 (L      )    0 (L      )
     --  11      10    1 (   W, B)    0 (   W   )    1 (L      )    0 (L      )
     --  11      11    1 (      B)    1 (   W   )    -----x-----    1 (L      )
@@ -531,7 +531,7 @@ begin
         WP_BUFFER(15 downto 8) & WP_BUFFER(15 downto 0) & WP_BUFFER(15 downto 8) when SIZE_I = "10" and ADR_OUT_I(1 downto 0) = "01" else
         WP_BUFFER(15 downto 0) & WP_BUFFER(15 downto 0) when SIZE_I = "10" and ADR_OUT_I(1 downto 0) = "10" else
         WP_BUFFER(15 downto 8) & WP_BUFFER(15 downto 0) & WP_BUFFER(15 downto 8) when SIZE_I = "10" and ADR_OUT_I(1 downto 0) = "11" else
-        -- Byte: 
+        -- Byte:
         WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0); -- SIZE = "01".
 
     IN_MUX: process
@@ -703,7 +703,7 @@ begin
     SLICES: process(CLK)
     -- This process provides the central timing for the read, write and read modify write cycle as also
     -- for the bus arbitration procedure. Be aware, that the bus controller state machine changes it's
-    -- state on the positive clock edge. The BUS_CYC_RDY signal is asserted during S3 or S5. So the 
+    -- state on the positive clock edge. The BUS_CYC_RDY signal is asserted during S3 or S5. So the
     -- slice counter working on the positive clock edge may change it's state.
     begin
         if CLK = '1' and CLK' event then
@@ -739,7 +739,7 @@ begin
                 S3 when SLICE_CNT_P = "001" and SLICE_CNT_N = "001" else
                 S4 when SLICE_CNT_P = "010" and SLICE_CNT_N = "001" else
                 S5 when SLICE_CNT_P = "010" and SLICE_CNT_N = "010" else
-                S3 when SLICE_CNT_P = "110" else -- This is a waitstate cycle for synchronous bus cycles to update SIZE_N before latching data. 
+                S3 when SLICE_CNT_P = "110" else -- This is a waitstate cycle for synchronous bus cycles to update SIZE_N before latching data.
                 S0 when SLICE_CNT_P = "000" and SLICE_CNT_N = "010" else IDLE; -- Rollover from state S5 to S0.
 
     P_OCS: process
@@ -789,9 +789,9 @@ begin
             ARB_STATE <= NEXT_ARB_STATE;
         end if;
     end process ARB_REG;
-    
+
     ARB_DEC: process(ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, RETRY, RMC)
-    -- This is the bus arbitration state machine's decoder. It can handle single-, two- 
+    -- This is the bus arbitration state machine's decoder. It can handle single-, two-
     -- or three wire arbitration. The two wire arbitration is done in the GRANT state
     -- by negating BRn.
     begin

@@ -56,6 +56,9 @@
 --   Minor changes.
 -- Revision 2K15B  20151224 WF
 --   Replaced the data type bit by std_logic.
+-- Revision 2K25A 20150620 WF
+--   XPEN_CNT is now incremented by the edge of DE.
+--    this is required because DE period may be slower than CLK.
 --
 
 library work;
@@ -190,18 +193,21 @@ begin
 		end if;
 	end process PADDLECOUNTER;
 
-	X_PEN_CNT: process(CLK, RESETn)
-	 -- The counter works with 8MHz or with 16MHz.
+	X_PEN_CNT: process
+    variable LOCK   : boolean;
 	begin
+		wait until CLK = '1' and CLK' event;
 		if RESETn = '0' then
 			XPEN_CNT <= (others => '0');
-		elsif CLK = '1' and CLK' event then
-			if DE = '1' then
-				XPEN_CNT <= XPEN_CNT + '1'; -- 8MHz or 16MHz.
-			else
-				XPEN_CNT <= (others => '0'); -- Erase counter during horizontal sync.
-			end if;			
-		end if;			
+            LOCK := false;
+        elsif DE = '1' and LOCK = false then
+            XPEN_CNT <= XPEN_CNT + '1'; -- 8MHz or 16MHz.
+            LOCK := true;
+        elsif DE = '0' then
+            LOCK := false;
+        else
+            XPEN_CNT <= (others => '0'); -- Erase counter during horizontal sync.
+        end if;			
 	end process X_PEN_CNT;
 	
 	Y_PEN_CNT: process(CLK, RESETn)
