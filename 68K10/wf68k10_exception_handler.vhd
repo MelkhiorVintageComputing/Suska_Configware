@@ -179,7 +179,8 @@ signal SYS_INIT             : bit;
 signal TRAP_BKPT            : bit;
 begin
 
-    BUSY_EXH <= '1' when EX_STATE /= IDLE else '0';
+    BUSY_EXH <= '1' when EX_STATE = IDLE and NEXT_EX_STATE /= IDLE else
+                '1' when EX_STATE /= IDLE else '0';
 
     IRQ_FILTER : process
     -- This logic is intended to avoid spurious IRQs due

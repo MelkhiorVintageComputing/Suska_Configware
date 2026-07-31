@@ -783,8 +783,8 @@ begin
 
     TRAP_AERR <= AERR when BUSY_EXH = '0' else '0'; -- No address error from the system during exception processing.
 
-    USE_DFC <= '1' when OP_WB = MOVES and DATA_WR_MAIN = '1' else '0';
-    USE_SFC <= '1' when OP_WB = MOVES and DATA_RD_MAIN = '1' else '0';
+    USE_DFC <= '1' when OP = MOVES and DATA_WR_MAIN = '1' else '0';
+    USE_SFC <= '1' when OP = MOVES and DATA_RD_MAIN = '1' else '0';
 
     PC_LOAD <= PC_LOAD_EXH or PC_LOAD_MAIN;
 
@@ -820,6 +820,7 @@ begin
     end process P_ADR_LATCHES;
 
     FC_I <= FC_LATCH when BUS_BSY = '1' else
+            "110" when RESTORE_ISP_PC = '1' else -- During Reset for the first two long words
             SFC when USE_SFC = '1' else
             DFC when USE_DFC = '1' else
             "111" when (DATA_RD = '1' or DATA_WR = '1') and CPU_SPACE = '1' else
