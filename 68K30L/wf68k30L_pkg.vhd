@@ -391,7 +391,7 @@ component WF68K30L_EXCEPTION_HANDLER
         IPIPE_FILL          : out bit;
         IPIPE_FLUSH         : out bit;
         REFILLn             : out std_logic;
-        RESTORE_ISP_PC      : out bit;
+        RESTORE_ISP_PC      : out Bit_vector(1 downto 0);
         HALT_OUTn           : out std_logic;
         STATUSn             : out bit;
         INT_TRIG            : in bit;

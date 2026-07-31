@@ -141,7 +141,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
         IPIPE_FILL          : out bit;
         IPIPE_FLUSH         : out bit;
         REFILLn             : out std_logic;
-        RESTORE_ISP_PC      : out bit;
+        RESTORE_ISP_PC      : out Bit_vector(1 downto 0);
 
         HALT_OUTn           : out std_logic;
         STATUSn             : out bit;
@@ -214,7 +214,9 @@ signal STACK_FORMAT_I       : std_logic_vector(3 downto 0);
 signal SYS_INIT             : bit;
 signal TRAP_BKPT            : bit;
 begin
-    BUSY_EXH <= '1' when EX_STATE /= IDLE else '0';
+
+    BUSY_EXH <= '1' when EX_STATE = IDLE and NEXT_EX_STATE /= IDLE else
+                '1' when EX_STATE /= IDLE else '0';
 
     IRQ_FILTER : process
     -- This logic is intended to avoid spurious IRQs due
@@ -606,9 +608,13 @@ begin
     -- the exception processing of a bus error, an address error or a reset.
     HALT_OUTn <= '0' when EX_STATE = HALTED else '1';
 
-    RESTORE_ISP_PC <= '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_ISP or EX_STATE = RESTORE_ISP) else
-                      '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_PC or EX_STATE = RESTORE_PC) else
-                      '1' when NEXT_EX_STATE = UPDATE_PC else '0';
+    RESTORE_ISP_PC(0) <= '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_ISP or EX_STATE = RESTORE_ISP) else
+                         '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_PC or EX_STATE = RESTORE_PC) else
+                         '1' when NEXT_EX_STATE = UPDATE_PC else '0';
+    
+    RESTORE_ISP_PC(1) <= '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_ISP or EX_STATE = RESTORE_ISP) else
+                         '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_PC or EX_STATE = RESTORE_PC) else
+                         '0';
 
     REFILLn <= '0' when EX_STATE = REFILL_PIPE else '1';
     

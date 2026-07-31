@@ -267,6 +267,9 @@ entity WF68K30L_TOP is
         BRn             : in std_logic;
         BGn             : out std_logic;
         BGACKn          : in std_logic
+        
+        -- ;PC : out std_logic_vector(31 downto 0)
+        
     );
 end entity WF68K30L_TOP;
     
@@ -436,7 +439,7 @@ signal RD_REQ                   : bit;
 signal RD_REQ_I                 : bit;
 signal RMC                      : bit;
 signal REFILLn_EXH              : std_logic;
-signal RESTORE_ISP_PC           : bit;
+signal RESTORE_ISP_PC           : Bit_vector(1 downto 0);
 signal RESET_CPU                : bit;
 signal RESET_IN                 : std_logic;
 signal RESET_STRB               : bit;
@@ -789,8 +792,8 @@ begin
 
     TRAP_AERR <= AERR when BUSY_EXH = '0' else '0'; -- No address error from the system during exception processing.
 
-    USE_DFC <= '1' when OP_WB = MOVES and DATA_WR_MAIN = '1' else '0';
-    USE_SFC <= '1' when OP_WB = MOVES and DATA_RD_MAIN = '1' else '0';
+    USE_DFC <= '1' when OP = MOVES and DATA_WR_MAIN = '1' else '0';
+    USE_SFC <= '1' when OP = MOVES and DATA_RD_MAIN = '1' else '0';
 
     PC_LOAD <= PC_LOAD_EXH or PC_LOAD_MAIN;
 
@@ -834,6 +837,7 @@ begin
     end process P_ADR_LATCHES;
 
     FC_I <= FC_LATCH when BUS_BSY = '1' else
+            "110" when RESTORE_ISP_PC(1) = '1' else -- During Reset for the first two long words
             SFC when USE_SFC = '1' else
             DFC when USE_DFC = '1' else
             "111" when (DATA_RD = '1' or DATA_WR = '1') and CPU_SPACE = '1' else
@@ -899,7 +903,7 @@ begin
             MBIT                    => STATUS_REG(12),
             SBIT                    => SBIT,
             SP_ADD_DISPL            => SP_ADD_DISPL,
-            RESTORE_ISP_PC          => RESTORE_ISP_PC,
+            RESTORE_ISP_PC          => RESTORE_ISP_PC(0),
             DISPLACEMENT            => DISPLACEMENT,
             PC_ADD_DISPL            => PC_ADD_DISPL,
             PC_EW_OFFSET            => PC_EW_OFFSET,

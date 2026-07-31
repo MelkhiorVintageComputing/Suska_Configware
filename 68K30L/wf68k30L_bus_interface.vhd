@@ -696,7 +696,7 @@ begin
                   '1' when RESET_OUT_I = '1' else -- No bus fault during RESET instruction.
                   '0' when DSACK_In /= "11" else -- For asynchronous bus cycles.
                   '0' when STERMn = '0' else -- For synchronous bus cycles.
-                  '0' when ADR_IN_P(19 downto 16) = x"F" and AVEC_In = '0' else -- Interrupt acknowledge space cycle.
+                  '0' when ADR_IN_P(19 downto 16) = x"F" and AVEC_In = '0' and FC_IN = x"7" else -- Interrupt acknowledge space cycle.
                   '0' when BUS_FLT = '1' else -- In case of a bus error;
                   '0' when RESET_CPU_I = '1' else '1'; -- A CPU reset terminates the current bus cycle.
 
